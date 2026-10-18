@@ -1,6 +1,7 @@
 #include "../Integration/FileMigration.h"
 #include "../Integration/HotkeyManager.h"
 #include "../Integration/ToolCatalog.h"
+#include "../Integration/I18n.h"
 #include <windows.h>
 #include <fstream>
 #include <iostream>
@@ -12,6 +13,12 @@ std::string read(fs::path const& p) { std::ifstream f(p, std::ios::binary); retu
 int main() {
     auto root = fs::temp_directory_path() / (L"AeluraTests-" + std::to_wstring(GetCurrentProcessId()));
     try {
+        check(aelura::i18n::resolve(0, L"zh-CN") == 0 && aelura::i18n::resolve(0, L"zh-TW") == 0, "Chinese locale detection failed");
+        check(aelura::i18n::resolve(0, L"ja-JP") == 1 && aelura::i18n::resolve(0, L"de-DE") == 1, "English fallback failed");
+        check(aelura::i18n::resolve(1, L"en-US") == 0 && aelura::i18n::resolve(2, L"zh-CN") == 1, "language override failed");
+        aelura::i18n::select(2); check(std::wstring(aelura::i18n::tr("nav.all")) == L"All tools", "English resource failed");
+        aelura::i18n::select(1); check(std::wstring(aelura::i18n::tr("nav.all")) == L"全部工具", "Chinese resource failed");
+        aelura::i18n::select(0);
         fs::create_directories(root / "dest");
         auto rejects = [&](fs::path const& src, fs::path const& dst) { try { aelura::migration::inspect(src, dst); return false; } catch (...) { return true; } };
         auto run = [&](fs::path const& src, bool copy = false) { return aelura::migration::execute(aelura::migration::inspect(src, root / "dest"), [](auto, auto) { return true; }, copy); };

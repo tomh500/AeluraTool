@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "Integration/I18n.h"
 #include "MainWindow.xaml.h"
 #include "MainWindow.g.cpp"
 #include <microsoft.ui.xaml.window.h>
@@ -11,6 +12,7 @@
 #include "Integration/FileMigration.h"
 #include <shobjidl.h>
 #include <winrt/Windows.UI.Text.h>
+#include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <dwmapi.h>
 #pragma comment(lib, "Dwmapi.lib")
 #pragma comment(lib, "Comctl32.lib")
@@ -19,11 +21,12 @@ using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 using namespace Microsoft::UI::Xaml::Controls;
 namespace winrt::AeluraTool::implementation {
+using aelura::i18n::tr;
     namespace {
         namespace capture = ::Aelura::Capture;
     }
     void MainWindow::Notice(hstring const& message, bool error) {
-        Status().Title(error ? L"需要处理" : L"遥汐工具箱");
+        Status().Title(error ? tr("common.error") : tr("app.name"));
         Status().IsOpen(true); Status().Message(message); Status().Severity(error ? InfoBarSeverity::Error : InfoBarSeverity::Success);
     }
     void MainWindow::Page(int index) {
@@ -32,9 +35,9 @@ namespace winrt::AeluraTool::implementation {
         KeysPage().Visibility(index == 1 ? Visibility::Visible : Visibility::Collapsed);
         PreferencesPage().Visibility(index == 2 ? Visibility::Visible : Visibility::Collapsed);
         MovePage().Visibility(index == 3 ? Visibility::Visible : Visibility::Collapsed);
-        const wchar_t* categories[] = {L"全部工具", L"图像处理", L"文件管理", L"游戏工具"};
-        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? L"快捷键" : index == 2 ? L"设置" : L"文件迁移");
-        PageDescription().Text(index == 0 ? L"找到现在需要的工具。" : index == 1 ? L"按操作管理常用按键组合。" : index == 2 ? L"让遥汐更适合你的习惯。" : L"释放磁盘空间，保留原路径访问。");
+        const wchar_t* categories[] = {tr("nav.all"), tr("nav.images"), tr("nav.files"), tr("nav.games")};
+        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : tr("move.title"));
+        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : tr("move.description"));
         ResultCount().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         auto standard = Application::Current().Resources().Lookup(box_value(L"DefaultButtonStyle")).as<Style>();
         auto selected = Application::Current().Resources().Lookup(box_value(L"AccentButtonStyle")).as<Style>();
@@ -61,23 +64,48 @@ namespace winrt::AeluraTool::implementation {
         PWSTR local{};
         check_hresult(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local));
         config_ = std::filesystem::path(local) / L"AeluraTool" / L"hotkeys.ini"; CoTaskMemFree(local);
+        languagePreference_ = GetPrivateProfileIntW(L"Appearance", L"Language", 0, config_.c_str());
+        if (languagePreference_ < 0 || languagePreference_ > 2) languagePreference_ = 0;
+        aelura::i18n::select(languagePreference_);
         hotkeys_.load(hwnd_, config_);
         int theme = GetPrivateProfileIntW(L"Appearance", L"Theme", 0, config_.c_str());
         if (theme < 0 || theme > 2) theme = 0;
         Root().RequestedTheme(static_cast<ElementTheme>(theme)); ThemeChoice().SelectedIndex(theme);
+        LanguageChoice().SelectedIndex(languagePreference_);
+        StartupMotionSwitch().IsOn(GetPrivateProfileIntW(L"Appearance", L"StartupAnimation", 1, config_.c_str()) != 0);
         auto titleTheme = [this] {
             const BOOL dark = Root().ActualTheme() == ElementTheme::Dark;
             DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         };
         Root().ActualThemeChanged([titleTheme](auto const&, auto const&) { titleTheme(); }); titleTheme();
         ThemeChoice().SelectionChanged([this](auto const&, auto const&) {
+            if (localizing_) return;
             int selected = ThemeChoice().SelectedIndex();
             std::error_code ec; std::filesystem::create_directories(config_.parent_path(), ec);
             if (ec || !WritePrivateProfileStringW(L"Appearance", L"Theme", std::to_wstring(selected).c_str(), config_.c_str())) {
-                Notice(L"主题设置无法保存。", true); return;
+                Notice(tr("error.theme_save"), true); return;
             }
             Root().RequestedTheme(static_cast<ElementTheme>(selected));
         });
+        LanguageChoice().SelectionChanged([this](auto const&, auto const&) {
+            if (localizing_) return;
+            const int preference = LanguageChoice().SelectedIndex();
+            std::error_code ec; std::filesystem::create_directories(config_.parent_path(), ec);
+            if (ec || !WritePrivateProfileStringW(L"Appearance", L"Language", std::to_wstring(preference).c_str(), config_.c_str())) {
+                localizing_ = true; LanguageChoice().SelectedIndex(languagePreference_); localizing_ = false;
+                Notice(tr("error.preference_save"), true); return;
+            }
+            languagePreference_ = preference; aelura::i18n::select(preference); ApplyLanguage();
+        });
+        StartupMotionSwitch().Toggled([this](auto const&, auto const&) {
+            if (localizing_) return;
+            std::error_code ec; std::filesystem::create_directories(config_.parent_path(), ec);
+            if (ec || !WritePrivateProfileStringW(L"Appearance", L"StartupAnimation", StartupMotionSwitch().IsOn() ? L"1" : L"0", config_.c_str())) Notice(tr("error.preference_save"), true);
+        });
+        PreviewMotionButton().Click([this](auto const&, auto const&) { PlayStartup(true); });
+        Root().Loaded([this](auto const&, auto const&) { PlayStartup(); });
+        Root().AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
+        Root().AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
         HomeNav().Click([this](auto const&, auto const&) { category_ = 0; Page(0); });
         ImageNav().Click([this](auto const&, auto const&) { category_ = 1; Page(0); });
         FilesNav().Click([this](auto const&, auto const&) { category_ = 2; Page(0); });
@@ -94,36 +122,37 @@ namespace winrt::AeluraTool::implementation {
         CancelMoveButton().Click([this](auto const&, auto const&) { cancelMove_ = true; });
         LicensesButton().Click([this](auto const&, auto const&) {
             ContentDialog dialog; dialog.XamlRoot(Root().XamlRoot()); dialog.RequestedTheme(Root().RequestedTheme());
-            dialog.Title(box_value(L"第三方许可")); dialog.CloseButtonText(L"关闭");
-            dialog.Content(box_value(L"ScreenShotPlus · MIT License\nnlohmann/json · MIT License\nStrikeSense 的第三方依赖许可随附安装目录 Tools/Licenses。")); dialog.ShowAsync();
+            dialog.Title(box_value(tr("settings.licenses"))); dialog.CloseButtonText(tr("common.close"));
+            dialog.Content(box_value(tr("licenses.body"))); dialog.ShowAsync();
         });
         moveTimer_ = DispatcherQueue().CreateTimer(); moveTimer_.Interval(std::chrono::milliseconds(120));
         moveTimer_.Tick([this](auto const&, auto const&) { auto total = moveTotal_.load(); MoveProgress().Value(total ? 100.0 * moveDone_.load() / total : 0); });
-        Page(0);
+        ApplyLanguage(); ready_ = true;
         timer_ = DispatcherQueue().CreateTimer(); timer_.Interval(std::chrono::milliseconds(100));
         timer_.Tick([this](auto const&, auto const&) {
             if (HWND engine = EngineWindow()) {
                 timer_.Stop();
                 const UINT command = std::exchange(pending_, 0);
                 DWORD_PTR result = 0;
+                SendMessageTimeoutW(engine, capture::Message, capture::SetLanguage, aelura::i18n::chinese() ? 1 : 2, SMTO_ABORTIFHUNG, 500, &result);
                 if (command == capture::Start) {
                     if (!SendMessageTimeoutW(engine, capture::Message, capture::CanCapture, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 500, &result) || result != capture::Accepted) {
-                        Notice(L"截图工具正忙，请先关闭截图设置或完成当前编辑。", true);
+                        Notice(tr("capture.busy_settings"), true);
                         return;
                     }
                     ShowWindow(hwnd_, SW_MINIMIZE);
                 }
                 if (!SendMessageTimeoutW(engine, capture::Message, command, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 2000, &result)) {
                     if (command == capture::Start) ShowWindow(hwnd_, SW_RESTORE);
-                    Notice(L"截图进程未响应，请重试。", true);
+                    Notice(tr("capture.no_response"), true);
                 } else if (result != capture::Accepted) {
                     if (command == capture::Start) ShowWindow(hwnd_, SW_RESTORE);
-                    Notice(L"截图工具正忙，请完成当前操作后重试。", true);
-                } else Notice(command == capture::Start ? L"已唤起截图，按 Esc 可取消。" : command == capture::Settings ? L"截图设置已打开。" : L"已请求显示最近截图。");
+                    Notice(tr("capture.busy"), true);
+                } else Notice(command == capture::Start ? tr("capture.started") : command == capture::Settings ? tr("capture.settings_open") : tr("capture.recent_open"));
                 pending_ = 0;
             }
             else if (++attempts_ >= 100 || (process_ && WaitForSingleObject(process_, 0) == WAIT_OBJECT_0)) {
-                timer_.Stop(); pending_ = 0; Notice(L"截图进程未能就绪，请重试；确认 Tools 中的组件完整。", true);
+                timer_.Stop(); pending_ = 0; Notice(tr("capture.not_ready"), true);
             }
             });
     }
@@ -135,7 +164,7 @@ namespace winrt::AeluraTool::implementation {
             }, reinterpret_cast<LPARAM>(&state)); return state.hwnd;
     }
     void MainWindow::Invoke(UINT command) {
-        if (pending_) { Notice(L"截图组件正在启动，请稍候。"); return; }
+        if (pending_) { Notice(tr("capture.starting")); return; }
         if (!process_ || WaitForSingleObject(process_, 0) != WAIT_TIMEOUT) {
             if (process_) { CloseHandle(process_); process_ = nullptr; }
             if (job_) { CloseHandle(job_); job_ = nullptr; }
@@ -143,26 +172,27 @@ namespace winrt::AeluraTool::implementation {
             auto exe = std::filesystem::path(path).parent_path() / L"Tools" / L"ScreenShotPlus.Host.exe";
             std::wstring args = L"\"" + exe.wstring() + L"\" --aelura-host";
             job_ = CreateJobObjectW(nullptr, nullptr); JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{}; limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            if (!job_ || !SetInformationJobObject(job_, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) { Notice(L"无法创建截图进程管理器。", true); return; }
+            if (!job_ || !SetInformationJobObject(job_, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) { Notice(tr("capture.manager_error"), true); return; }
             STARTUPINFOW startup{ sizeof(startup) }; PROCESS_INFORMATION process{};
             if (!CreateProcessW(exe.c_str(), args.data(), nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr, exe.parent_path().c_str(), &startup, &process)) {
-                Notice(L"无法启动截图组件，请确认 Tools/ScreenShotPlus.Host.exe 存在。", true); return;
+                Notice(tr("capture.missing"), true); return;
             }
-            if (!AssignProcessToJobObject(job_, process.hProcess)) { TerminateProcess(process.hProcess, 1); CloseHandle(process.hThread); CloseHandle(process.hProcess); Notice(L"无法托管截图进程。", true); return; }
+            if (!AssignProcessToJobObject(job_, process.hProcess)) { TerminateProcess(process.hProcess, 1); CloseHandle(process.hThread); CloseHandle(process.hProcess); Notice(tr("capture.manage_error"), true); return; }
             process_ = process.hProcess; pid_ = process.dwProcessId;
             if (ResumeThread(process.hThread) == static_cast<DWORD>(-1)) {
                 TerminateProcess(process_, 1); CloseHandle(process_); process_ = nullptr;
-                CloseHandle(process.hThread); Notice(L"截图进程启动失败，请重试。", true); return;
+                CloseHandle(process.hThread); Notice(tr("capture.start_error"), true); return;
             }
             CloseHandle(process.hThread);
         }
-        pending_ = command; attempts_ = 0; Notice(L"正在唤起截图工具…"); timer_.Start();
+        pending_ = command; attempts_ = 0; Notice(tr("capture.opening")); timer_.Start();
     }
     LRESULT CALLBACK MainWindow::WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) {
         auto self = reinterpret_cast<MainWindow*>(data);
-        if (msg == WM_CLOSE && self->moveBusy_) { self->Notice(L"请等待迁移完成，或先取消当前任务。", true); return 0; }
+        if (msg == WM_CLOSE && self->moveBusy_) { self->Notice(tr("move.wait"), true); return 0; }
         if (msg == WM_GETMINMAXINFO) { auto info = reinterpret_cast<MINMAXINFO*>(lp); info->ptMinTrackSize = {1000, 680}; return 0; }
         if (msg == WM_HOTKEY) {
+            self->FinishStartup();
             for (auto const& b : self->hotkeys_.bindings) if (b.registered && wp == static_cast<WPARAM>(b.slot)) {
                 if (b.id == L"print") self->Invoke(1); else if (b.id == L"preview") self->Invoke(3); else self->ActivateTool(b.id);
                 return 0;

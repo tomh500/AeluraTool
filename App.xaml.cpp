@@ -39,7 +39,7 @@ namespace winrt::AeluraTool::implementation
     {
         auto main = make<MainWindow>();
         window = main;
-        window.Activate();
         get_self<MainWindow>(main)->Setup();
+        if (get_self<MainWindow>(main)->Ready()) window.Activate();
     }
 }

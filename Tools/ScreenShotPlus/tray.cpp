@@ -29,8 +29,8 @@ DWORD CurrentProcessIntegrity() {
 }
 std::wstring TrayFailureMessage(const TrayIcon& tray) {
     if (CurrentProcessIntegrity() < SECURITY_MANDATORY_MEDIUM_RID)
-        return L"托盘注册失败：程序处于低完整性。请检查 EXE 及所在目录的完整性标签。";
-    return L"托盘注册失败，正在重试（诊断错误 " + std::to_wstring(tray.diagnosticError) + L"）。请保留此面板。";
+        return tr("screen.tray.001");
+    return tr("screen.tray.002") + std::to_wstring(tray.diagnosticError) + tr("screen.tray.003");
 }
 void RemoveTrayIcon(TrayIcon& tray) {
     Shell_NotifyIconW(NIM_DELETE, &tray.data); tray.registered = tray.modern = false;

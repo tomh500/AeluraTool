@@ -120,11 +120,11 @@ unique_ptr<Bitmap> BuildMosaic(Bitmap& source, int block, wstring& error) {
     block = clamp(block, 8, 32);
     const int w = static_cast<int>(source.GetWidth()), h = static_cast<int>(source.GetHeight());
     auto result = make_unique<Bitmap>((w + block - 1) / block, (h + block - 1) / block, PixelFormat32bppARGB);
-    if (result->GetLastStatus() != Ok) { error = L"无法分配马赛克图像。"; return {}; }
+    if (result->GetLastStatus() != Ok) { error = tr("screen.annotation.001"); return {}; }
     BitmapData input{}, output{}; Rect sr(0,0,w,h), dr(0,0,result->GetWidth(),result->GetHeight());
-    if (source.LockBits(&sr, ImageLockModeRead, PixelFormat32bppARGB, &input) != Ok) { error = L"无法读取马赛克原图。"; return {}; }
+    if (source.LockBits(&sr, ImageLockModeRead, PixelFormat32bppARGB, &input) != Ok) { error = tr("screen.annotation.002"); return {}; }
     if (result->LockBits(&dr, ImageLockModeWrite, PixelFormat32bppARGB, &output) != Ok) {
-        source.UnlockBits(&input); error = L"无法写入马赛克图像。"; return {};
+        source.UnlockBits(&input); error = tr("screen.annotation.003"); return {};
     }
     for (int by = 0; by < dr.Height; ++by) {
         auto dst = reinterpret_cast<UINT*>(static_cast<BYTE*>(output.Scan0) + by * output.Stride);
@@ -156,15 +156,15 @@ void DrawMosaic(Graphics& g, Bitmap& mosaic, const Annotation& a) {
 }
 unique_ptr<Bitmap> RenderAnnotations(Bitmap& source, const vector<Annotation>& annotations, wstring& error) {
     unique_ptr<Bitmap> result(source.Clone(0, 0, static_cast<INT>(source.GetWidth()), static_cast<INT>(source.GetHeight()), PixelFormat32bppARGB));
-    if (!result || result->GetLastStatus() != Ok) { error = L"无法分配编辑图像，请重试。"; return {}; }
+    if (!result || result->GetLastStatus() != Ok) { error = tr("screen.annotation.004"); return {}; }
     Graphics g(result.get());
-    if (g.GetLastStatus() != Ok) { error = L"无法创建标注画布，请重试。"; return {}; }
+    if (g.GetLastStatus() != Ok) { error = tr("screen.annotation.005"); return {}; }
     g.SetSmoothingMode(SmoothingModeAntiAlias); g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
     g.SetClip(Rect(0, 0, static_cast<INT>(source.GetWidth()), static_cast<INT>(source.GetHeight())));
     array<unique_ptr<Bitmap>,4> mosaics;
     for (const auto& a : annotations) if (a.kind != Annotation::Mosaic) {
         DrawAnnotation(g,a);
-        if (g.GetLastStatus() != Ok) { error=L"标注绘制失败，编辑内容仍然保留。"; return {}; }
+        if (g.GetLastStatus() != Ok) { error=tr("screen.annotation.006"); return {}; }
     }
     // Privacy masks always cover other annotations, including annotations added later.
     for (const auto& a : annotations) if (a.kind == Annotation::Mosaic) {
@@ -172,7 +172,7 @@ unique_ptr<Bitmap> RenderAnnotations(Bitmap& source, const vector<Annotation>& a
         if (!mosaics[i]) mosaics[i]=BuildMosaic(source,block,error);
         if (!mosaics[i]) return {};
         auto mask=a; mask.size=static_cast<float>(block); DrawMosaic(g,*mosaics[i],mask);
-        if (g.GetLastStatus() != Ok) { error=L"马赛克绘制失败，编辑内容仍然保留。"; return {}; }
+        if (g.GetLastStatus() != Ok) { error=tr("screen.annotation.007"); return {}; }
     }
     return result;
 }

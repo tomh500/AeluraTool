@@ -1,5 +1,6 @@
 // StrikeSense.cpp — 程序入口
 #include "framework.h"
+#include "../../../../Integration/ToolLanguageProtocol.h"
 #include "StrikeSense.h"
 #include "console.h"
 #include "steam_helper.h"
@@ -305,7 +306,8 @@ int APIENTRY wWinMain(HINSTANCE hI, HINSTANCE, LPWSTR, int nSC) {
     InitLegalCfgPage();
     
     // 加载本地配置并让动态全局热键生效
-    LoadEvolutionParams();  
+    LoadEvolutionParams();
+    if (HasLaunchArg(L"--aelura-host")) g_langCN = !HasLaunchArg(L"--language=en");
     Hotkey::UpdateGlobalHotkey(hwMain); 
     Hotkey::UpdateItemHelperHotkey(hwMain);
     // ----------------------------------------------------
@@ -629,6 +631,7 @@ static int ResolveCloseAction(HWND hw)
 }
 
 LRESULT CALLBACK WndProc(HWND hw, UINT m, WPARAM wp, LPARAM lp) {
+    if (m == aelura::ToolLanguageMessage) { if (wp != 1 && wp != 2) return 0; g_langCN = wp == 1; InvalidateRect(hw, nullptr, FALSE); return 1; }
     switch (m) {
     case WM_ERASEBKGND: return DefWindowProc(hw, m, wp, lp);
     case WM_CREATE: std::cout << "StrikeSense 启动" << std::endl; break;

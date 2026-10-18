@@ -3,11 +3,13 @@
 #include <filesystem>
 #include <atomic>
 #include "Integration/HotkeyManager.h"
+#include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
 namespace winrt::AeluraTool::implementation {
     struct MainWindow : MainWindowT<MainWindow> {
         MainWindow() = default;
         ~MainWindow();
         void Setup();
+        bool Ready() const { return ready_; }
     private:
         HWND hwnd_{};
         HANDLE process_{}, job_{}, singleton_{};
@@ -16,6 +18,9 @@ namespace winrt::AeluraTool::implementation {
         HANDLE strike_{};
         int category_{}, page_{};
         bool moveBusy_{};
+        bool ready_{}, localizing_{}, startupPlayed_{};
+        int languagePreference_{};
+        Microsoft::UI::Xaml::Media::Animation::Storyboard startupBoard_{nullptr};
         std::atomic<bool> cancelMove_{false};
         std::atomic<uintmax_t> moveDone_{0}, moveTotal_{0};
         Microsoft::UI::Dispatching::DispatcherQueueTimer moveTimer_{nullptr};
@@ -25,6 +30,9 @@ namespace winrt::AeluraTool::implementation {
         void Page(int index);
         void Notice(hstring const& message, bool error = false);
         void RenderTools();
+        void ApplyLanguage();
+        void PlayStartup(bool preview = false);
+        void FinishStartup();
         void RenderKeys();
         void ActivateTool(std::wstring const& id);
         void LaunchStrike();

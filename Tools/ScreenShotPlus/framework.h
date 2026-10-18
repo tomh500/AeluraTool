@@ -23,6 +23,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "../../Integration/I18n.h"
+using aelura::i18n::tr;
 inline constexpr UINT WM_TRAY = WM_APP + 1;
 inline constexpr UINT WM_SHOW_PANEL = WM_APP + 2;
 #include "../../Integration/CaptureProtocol.h"

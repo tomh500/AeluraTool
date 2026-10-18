@@ -67,9 +67,9 @@ def ready(process):
         time.sleep(.05)
     raise AssertionError("Engine did not become ready")
 
-def request(hwnd, command):
+def request(hwnd, command, argument=0):
     result = c.c_size_t()
-    if not u.SendMessageTimeoutW(hwnd, 0x8000 + 120, command, 0, 3, 2000, c.byref(result)):
+    if not u.SendMessageTimeoutW(hwnd, 0x8000 + 120, command, argument, 3, 2000, c.byref(result)):
         raise c.WinError(c.get_last_error())
     return result.value
 
@@ -82,6 +82,8 @@ try:
     assert name.value == "AeluraTool.ScreenShotPlus.Panel", name.value
     assert not u.GetPropW(hwnd, "ScreenShotPlus.PrimaryInstance"), "Must not impersonate the standalone app"
     assert request(hwnd, 5) == 1, "Idle engine should accept capture"
+    assert request(hwnd, 6, 2) == 1, "English language update should be acknowledged"
+    assert request(hwnd, 6, 1) == 1, "Chinese language update should be acknowledged"
     assert request(hwnd, 999) == 0, "Unknown commands must be rejected"
     assert request(hwnd, 4) == 1, "Shutdown must be acknowledged"
     assert process.wait(timeout=5) == 0

@@ -1,5 +1,7 @@
+#include "I18n.h"
 #include "HotkeyManager.h"
 namespace aelura::hotkeys {
+using aelura::i18n::tr;
 namespace {
 bool valid(UINT mods, UINT key, bool print) {
     return print ? mods == 0 && key == VK_SNAPSHOT : mods && !(mods & ~(MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_WIN)) &&
@@ -15,11 +17,11 @@ std::wstring label(Binding const& b) {
 }
 void Manager::load(HWND hwnd, std::filesystem::path path) {
     window = hwnd; config = std::move(path);
-    bindings = {{L"capture", L"开始截图", L"图像处理", MOD_CONTROL | MOD_ALT, 'A', true},
-        {L"preview", L"最近截图", L"图像处理", MOD_CONTROL | MOD_ALT, 'P', false},
-        {L"move", L"打开文件迁移", L"文件管理", MOD_CONTROL | MOD_ALT, 'M', false},
-        {L"strike", L"打开 StrikeSense", L"游戏工具", MOD_CONTROL | MOD_ALT, 'S', false},
-        {L"print", L"PrintScreen 截图", L"图像处理", 0, VK_SNAPSHOT, false}};
+    bindings = {{L"capture", tr("capture.start"), tr("nav.images"), MOD_CONTROL | MOD_ALT, 'A', true},
+        {L"preview", tr("capture.recent"), tr("nav.images"), MOD_CONTROL | MOD_ALT, 'P', false},
+        {L"move", tr("keys.move"), tr("nav.files"), MOD_CONTROL | MOD_ALT, 'M', false},
+        {L"strike", tr("keys.strike"), tr("nav.games"), MOD_CONTROL | MOD_ALT, 'S', false},
+        {L"print", tr("keys.print"), tr("nav.images"), 0, VK_SNAPSHOT, false}};
     for (size_t i = 0; i < bindings.size(); ++i) {
         auto& b = bindings[i]; b.slot = 200 + static_cast<int>(i) * 2;
         const auto section = L"Hotkey." + b.id;
@@ -37,10 +39,10 @@ void Manager::load(HWND hwnd, std::filesystem::path path) {
 }
 bool Manager::save(size_t index, UINT mods, UINT key, bool enabled, std::wstring& error) {
     auto& b = bindings.at(index);
-    if (!valid(mods, key, b.id == L"print")) { error = L"请选择有效的按键组合，且至少包含一个修饰键。"; return false; }
+    if (!valid(mods, key, b.id == L"print")) { error = tr("error.invalid_shortcut"); return false; }
     const bool same = b.registered && mods == b.modifiers && key == b.key;
     const int candidate = b.slot % 2 ? b.slot - 1 : b.slot + 1;
-    if (enabled && !same && !RegisterHotKey(window, candidate, mods | MOD_NOREPEAT, key)) { error = L"这个组合已被占用，请换一个。原设置保持有效。"; return false; }
+    if (enabled && !same && !RegisterHotKey(window, candidate, mods | MOD_NOREPEAT, key)) { error = tr("error.shortcut_busy"); return false; }
     std::error_code ec; std::filesystem::create_directories(config.parent_path(), ec);
     auto temp = config; temp += L".tmp";
     bool ok = !ec;
@@ -58,10 +60,14 @@ bool Manager::save(size_t index, UINT mods, UINT key, bool enabled, std::wstring
         if (ok) { ok = FlushFileBuffers(file) != 0; CloseHandle(file); }
     }
     if (ok) ok = MoveFileExW(temp.c_str(), config.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
-    if (!ok) { DeleteFileW(temp.c_str()); if (enabled && !same) UnregisterHotKey(window, candidate); error = L"无法保存设置，原设置保持有效。"; return false; }
+    if (!ok) { DeleteFileW(temp.c_str()); if (enabled && !same) UnregisterHotKey(window, candidate); error = tr("error.preference_save"); return false; }
     if (b.registered && (!enabled || !same)) UnregisterHotKey(window, b.slot);
     if (enabled && !same) b.slot = candidate;
     b.modifiers = mods; b.key = key; b.enabled = enabled; b.registered = enabled; return true;
 }
 void Manager::release() { for (auto& b : bindings) { if (b.registered) UnregisterHotKey(window, b.slot); b.registered = false; } }
+void Manager::localize() {
+    const char* titles[] = {"capture.start", "capture.recent", "keys.move", "keys.strike", "keys.print"};
+    for (size_t i = 0; i < bindings.size(); ++i) { bindings[i].title = tr(titles[i]); bindings[i].category = i18n::category(i == 2 ? 2 : i == 3 ? 3 : 1); }
+}
 }

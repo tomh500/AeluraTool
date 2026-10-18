@@ -36,7 +36,7 @@ Config LoadConfig(const filesystem::path& file, wstring& warning) {
     Config result = DefaultConfig();
     error_code ec;
     if (!filesystem::exists(file, ec)) {
-        if (ec) warning = L"无法读取配置目录，已使用默认设置。";
+        if (ec) warning = tr("screen.config.001");
         return result;
     }
     try {
@@ -90,24 +90,24 @@ Config LoadConfig(const filesystem::path& file, wstring& warning) {
         parsed.previewMovable = data.value("previewMovable", true);
         if (!ValidConfig(parsed)) throw runtime_error("invalid config");
         result = move(parsed);
-    } catch (const exception&) { warning = L"配置损坏或无效，已使用默认设置；原文件保留到下次保存设置。"; }
+    } catch (const exception&) { warning = tr("screen.config.002"); }
     return result;
 }
 bool SaveConfig(const filesystem::path& file, const Config& c, wstring& error) {
-    if (!ValidConfig(c)) { error = L"设置无效：请检查完整目录、组合快捷键和自定义选项范围。"; return false; }
+    if (!ValidConfig(c)) { error = tr("screen.config.003"); return false; }
     filesystem::path temporary = file; temporary += L"." + to_wstring(GetCurrentProcessId()) + L".tmp";
     bool created = false;
     const auto failed = [&](const wstring& stage, const error_code& code) {
         error_code cleanup;
         if (created) filesystem::remove(temporary, cleanup);
-        error = L"无法保存设置（" + stage + L"，错误 " + to_wstring(code.value()) + L"），原设置仍然有效。\n配置：" + file.wstring();
+        error = tr("screen.config.004") + stage + tr("screen.config.005") + to_wstring(code.value()) + tr("screen.config.006") + file.wstring();
         return false;
     };
-    if (!file.is_absolute()) return failed(L"配置路径无效", make_error_code(errc::invalid_argument));
+    if (!file.is_absolute()) return failed(tr("screen.config.007"), make_error_code(errc::invalid_argument));
     try {
         error_code ec;
         filesystem::create_directories(file.parent_path(), ec);
-        if (ec) return failed(L"创建配置目录", ec);
+        if (ec) return failed(tr("screen.config.008"), ec);
         const auto path = c.folder.u8string();
         const json data{{"folder", string(reinterpret_cast<const char*>(path.data()), path.size())},
             {"modifiers", c.modifiers}, {"key", c.key}, {"printScreen", c.printScreen},
@@ -122,14 +122,14 @@ bool SaveConfig(const filesystem::path& file, const Config& c, wstring& error) {
             {"previewHints", c.previewHints}, {"hideAfterDrag", c.hideAfterDrag},
             {"previewTopmost", c.previewTopmost}, {"previewMovable", c.previewMovable}};
         ofstream output(temporary, ios::binary | ios::trunc);
-        if (!output) return failed(L"创建临时配置", error_code(errno ? errno : EIO, generic_category()));
+        if (!output) return failed(tr("screen.config.009"), error_code(errno ? errno : EIO, generic_category()));
         created = true;
         output << data.dump(2) << '\n'; output.close();
-        if (!output) return failed(L"写入配置", error_code(errno ? errno : EIO, generic_category()));
+        if (!output) return failed(tr("screen.config.010"), error_code(errno ? errno : EIO, generic_category()));
         filesystem::rename(temporary, file, ec);
-        if (ec) return failed(L"替换配置文件", ec);
+        if (ec) return failed(tr("screen.config.011"), ec);
         return true;
-    } catch (const exception&) { return failed(L"生成配置", make_error_code(errc::io_error)); }
+    } catch (const exception&) { return failed(tr("screen.config.012"), make_error_code(errc::io_error)); }
 }
 bool SaveConfigWithFallback(const filesystem::path& file, const filesystem::path& fallback,
     const Config& config, filesystem::path& savedFile, wstring& error) {
@@ -137,7 +137,7 @@ bool SaveConfigWithFallback(const filesystem::path& file, const filesystem::path
     if (!ValidConfig(config) || fallback.empty() || fallback == file) return false;
     const auto originalError = error;
     if (SaveConfig(fallback, config, error)) { savedFile = fallback; error.clear(); return true; }
-    error = originalError + L"\n备用配置也无法保存：" + fallback.wstring();
+    error = originalError + tr("screen.config.013") + fallback.wstring();
     return false;
 }
 wstring HotkeyText(const Config& c) {

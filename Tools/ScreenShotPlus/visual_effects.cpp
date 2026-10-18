@@ -159,7 +159,7 @@ void Render(HWND hwnd, HDC print = nullptr) {
             const RectF badge{max(0.0f, (w - badgeWidth) / 2), h + 10 * s, badgeWidth, 30 * s};
             ui::Round(g, badge, 15 * s, ui::background);
             ui::Border(g, badge, 15 * s, effect.feedback & DROPEFFECT_COPY ? ui::accent : Color(255, 90, 101, 118));
-            ui::Text(g, effect.feedback & DROPEFFECT_COPY ? L"＋  松开即可复制" : L"选择可接收的位置", {badge.X + 12 * s, badge.Y + 6 * s,
+            ui::Text(g, effect.feedback & DROPEFFECT_COPY ? tr("screen.visual_effects.001") : tr("screen.visual_effects.002"), {badge.X + 12 * s, badge.Y + 6 * s,
                 badge.Width - 20 * s, 22 * s}, 11 * s, effect.feedback & DROPEFFECT_COPY ? ui::accent : ui::muted, true);
             const float age = static_cast<float>(now - effect.createdTime), hidden = clamp((age - .8f) / .22f, 0.0f, 1.0f) * clamp((1.9f - age) / .55f, 0.0f, 1.0f);
             if (animated && ui::MotionLevel() >= 3 && hidden > 0) ui::Text(g, L"XuanRikka", {max(0.0f, w - 76 * s), h + 42 * s, 74 * s, 12 * s},
@@ -204,7 +204,7 @@ bool Start(Bitmap& image, RECT origin, RECT destination, Effect::Mode mode) {
     WNDCLASSEXW existing{sizeof(existing)};
     if (!GetClassInfoExW(instance, effectClass, &existing) && !RegisterClassExW(&cls)) return false;
     effect.window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
-        effectClass, L"ScreenShotPlus 图片动效", WS_POPUP | WS_DISABLED, origin.left, origin.top, 1, 1, nullptr, nullptr, instance, nullptr);
+        effectClass, tr("screen.visual_effects.003"), WS_POPUP | WS_DISABLED, origin.left, origin.top, 1, 1, nullptr, nullptr, instance, nullptr);
     if (!effect.window) return false;
     ++effect.cookie;
     effect.scale = ui::Scale(effect.window);

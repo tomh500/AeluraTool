@@ -9,7 +9,7 @@ constexpr UINT_PTR repeatTimer=0x5350;
 constexpr int initialWidth=1200,initialHeight=800;
 const array<Color,8> colors{Color(255,255,0,0),Color(255,255,128,0),Color(255,255,235,0),Color(255,0,180,0),Color(255,0,220,220),Color(255,0,96,255),Color(255,160,64,255),Color(255,255,255,255)};
 const array<int,7> tools{-1,Annotation::Stroke,Annotation::Arrow,Annotation::Rectangle,Annotation::Text,Annotation::Mosaic,Annotation::Watermark};
-const array<wstring,7> toolNames{L"选择",L"画笔",L"箭头",L"矩形",L"文字",L"马赛克",L"水印"};
+auto toolNames() { return array<wstring,7>{tr("screen.editor.001"),tr("screen.editor.002"),tr("screen.editor.003"),tr("screen.editor.004"),tr("screen.editor.005"),tr("screen.editor.006"),tr("screen.editor.007")}; }
 struct Layout {
     float width=1200,height=800;
     RectF canvas,input,undo,redo,cancel,save,maximize,close,minus,plus,actual,fit;
@@ -129,7 +129,7 @@ void SetColor(Color color){editor.color=color;if(editor.textActive)editor.draft.
 void AdjustSize(int step){SetSize(PropertySize()+step*(PropertyKind()==Annotation::Mosaic?8:1));}
 void FinishNumber(bool apply){
     if(!editor.numberActive)return;
-    if(apply){if(editor.numberText.empty())editor.notice=L"请输入大小数值。";else{int value=0;for(wchar_t c:editor.numberText)value=value*10+(c-L'0');BeginChange();SetSize(static_cast<float>(value));EndChange();editor.notice.clear();}}
+    if(apply){if(editor.numberText.empty())editor.notice=tr("screen.editor.008");else{int value=0;for(wchar_t c:editor.numberText)value=value*10+(c-L'0');BeginChange();SetSize(static_cast<float>(value));EndChange();editor.notice.clear();}}
     editor.numberActive=false;Refresh();
 }
 void LoadProperties(const Annotation& a);
@@ -235,7 +235,7 @@ size_t InputPosition(POINT p){
     for(size_t i=start;i<end;){const size_t next=Next(editor.draft.text,i);if(x<(TextWidth(g,editor.draft.text.substr(start,i-start))+TextWidth(g,editor.draft.text.substr(start,next-start)))/2)return i;i=next;}return end;
 }
 void DrawTextInput(Graphics& g){
-    ui::Round(g,layout.input,8,ui::surface);ui::Text(g,WatermarkMode()?L"水印文字 · Enter 完成 / Shift+Enter 换行":L"文字输入 · Enter 完成 / Shift+Enter 换行",{layout.input.X+12,layout.input.Y+3,layout.input.Width-24,22},11,ui::muted);
+    ui::Round(g,layout.input,8,ui::surface);ui::Text(g,WatermarkMode()?tr("screen.editor.009"):tr("screen.editor.010"),{layout.input.X+12,layout.input.Y+3,layout.input.Width-24,22},11,ui::muted);
     const auto lines=LineStarts();const int first=max(0,CaretLine(lines)-2);const float offset=TextOffset(g,lines);const size_t selStart=min(editor.caret,editor.anchor),selEnd=max(editor.caret,editor.anchor);
     const auto saved=g.Save();g.SetClip(RectF(layout.input.X+10,layout.input.Y+27,layout.input.Width-20,72));
     for(int line=first;line<min(first+3,static_cast<int>(lines.size()));++line){
@@ -270,46 +270,46 @@ void Button(Graphics& g,RectF r,const wstring& text,bool active=false,bool enabl
     if(enabled)ui::Button(g,editor.window,r,text,active,ui::Inside(editor.mouse,r));else{ui::Round(g,r,7,ui::surface);ui::Text(g,text,{r.X+8,r.Y+7,r.Width-12,r.Height-8},13,Color(255,95,107,122));}
 }
 wstring Hint(){
-    if(editor.numberActive)return L"输入数值 · Enter 应用 · Esc 取消";
-    if(editor.textActive)return L"文字支持选中、复制粘贴和多行 · Enter 完成 · Esc 放弃本次输入";
-    if(WatermarkMode())return L"顶部按钮单击切换参数 · 左侧调整字号与颜色 · 水印工具可重新编辑文字";
-    if(ui::Inside(editor.mouse,layout.size)||ui::Inside(editor.mouse,layout.number))return L"拖动滑条快速调大小，也可点击数值直接输入 · − / + 按住连续调整";
-    if(ui::Inside(editor.mouse,layout.undo))return L"撤销 Ctrl+Z · 最多保留 24 次修改";
-    if(ui::Inside(editor.mouse,layout.redo))return L"重做 Ctrl+Y / Ctrl+Shift+Z";
-    if(ui::Inside(editor.mouse,layout.save))return L"保存并返回 Ctrl+S · 原截图保留";
-    if(editor.selected>=0)return L"拖动移动标注 · 拖动控制点调整形状 · Delete 删除";
-    if(editor.tool==Annotation::Mosaic)return L"拖动框选遮盖区域 · 块越大，细节越少";
-    if(editor.tool==-1)return L"点击选择标注 · 双击文字修改 · Delete 删除";
-    if(editor.tool==Annotation::Rectangle)return L"拖动绘制矩形 · Shift 绘制正方形";
-    return L"滚轮缩放 · 空格+拖动或中键平移 · Esc 取消当前操作";
+    if(editor.numberActive)return tr("screen.editor.011");
+    if(editor.textActive)return tr("screen.editor.012");
+    if(WatermarkMode())return tr("screen.editor.013");
+    if(ui::Inside(editor.mouse,layout.size)||ui::Inside(editor.mouse,layout.number))return tr("screen.editor.014");
+    if(ui::Inside(editor.mouse,layout.undo))return tr("screen.editor.015");
+    if(ui::Inside(editor.mouse,layout.redo))return tr("screen.editor.016");
+    if(ui::Inside(editor.mouse,layout.save))return tr("screen.editor.017");
+    if(editor.selected>=0)return tr("screen.editor.018");
+    if(editor.tool==Annotation::Mosaic)return tr("screen.editor.019");
+    if(editor.tool==-1)return tr("screen.editor.020");
+    if(editor.tool==Annotation::Rectangle)return tr("screen.editor.021");
+    return tr("screen.editor.022");
 }
 void DrawEditor(HWND hwnd,HDC target=nullptr){
     Relayout();ui::Paint paint(hwnd,target);Graphics g(paint.buffer);ui::Prepare(g,hwnd);
-    ui::Text(g,L"编辑截图",{24,20,180,32},23,ui::foreground,true);
-    if(layout.width>=1100)ui::Text(g,L"原图保留 · 自由标注",{204,27,220,24},12,ui::muted);
-    Button(g,layout.undo,L"撤销",false,!editor.undo.empty()||editor.textActive);Button(g,layout.redo,L"重做",false,!editor.redo.empty()&&!editor.textActive);
-    Button(g,layout.cancel,L"取消");Button(g,layout.save,L"保存并返回",true);Button(g,layout.maximize,IsZoomed(hwnd)?L"▣":L"□");Button(g,layout.close,L"×");
-    ui::Round(g,{20,82,214,layout.height-132},10,ui::surface);for(int i=0;i<7;++i)Button(g,layout.Tool(i),toolNames[i],editor.tool==tools[i]);
+    ui::Text(g,tr("screen.editor.023"),{24,20,180,32},23,ui::foreground,true);
+    if(layout.width>=1100)ui::Text(g,tr("screen.editor.024"),{204,27,220,24},12,ui::muted);
+    Button(g,layout.undo,tr("screen.editor.025"),false,!editor.undo.empty()||editor.textActive);Button(g,layout.redo,tr("screen.editor.026"),false,!editor.redo.empty()&&!editor.textActive);
+    Button(g,layout.cancel,tr("screen.editor.027"));Button(g,layout.save,tr("screen.editor.028"),true);Button(g,layout.maximize,IsZoomed(hwnd)?L"▣":L"□");Button(g,layout.close,L"×");
+    ui::Round(g,{20,82,214,layout.height-132},10,ui::surface);for(int i=0;i<7;++i)Button(g,layout.Tool(i),toolNames()[i],editor.tool==tools[i]);
     const int kind=PropertyKind();const bool properties=kind>=0;
-    ui::Text(g,editor.selected>=0?L"选中标注属性":L"工具属性",{32,272,190,26},14,ui::foreground,true);
-    ui::Text(g,TextKind(kind)?L"字号 / 原图 px":kind==Annotation::Mosaic?L"马赛克块 / 原图 px":L"粗细 / 原图 px",{32,294,190,22},11,ui::muted);
+    ui::Text(g,editor.selected>=0?tr("screen.editor.029"):tr("screen.editor.030"),{32,272,190,26},14,ui::foreground,true);
+    ui::Text(g,TextKind(kind)?tr("screen.editor.031"):kind==Annotation::Mosaic?tr("screen.editor.032"):tr("screen.editor.033"),{32,294,190,22},11,ui::muted);
     Button(g,layout.smaller,L"−",false,properties);Button(g,layout.larger,L"+",false,properties);Button(g,layout.number,editor.numberActive?editor.numberText+L"│":to_wstring(static_cast<int>(PropertySize()))+L" px",editor.numberActive,properties);
     ui::Round(g,layout.size,6,Color(255,60,70,83));const float fraction=(PropertySize()-Minimum())/(Maximum()-Minimum());
     ui::Round(g,{layout.size.X,layout.size.Y,max(1.0f,layout.size.Width*fraction),layout.size.Height},6,properties?ui::accent:ui::muted);SolidBrush knob(properties?ui::accent:ui::muted);g.FillEllipse(&knob,layout.size.X+layout.size.Width*fraction-8,layout.size.Y-2,16.0f,16.0f);
     ui::Text(g,to_wstring(Minimum()),{32,365,30,16},10,ui::muted);ui::Text(g,to_wstring(Maximum()),{190,365,32,16},10,ui::muted);
     if(kind!=Annotation::Mosaic&&properties){
-        ui::Round(g,{32,406,24,24},6,editor.color);ui::Text(g,L"颜色",{64,407,60,24},13);Button(g,layout.rgb,L"RGB",editor.rgb);
+        ui::Round(g,{32,406,24,24},6,editor.color);ui::Text(g,tr("screen.editor.034"),{64,407,60,24},13);Button(g,layout.rgb,L"RGB",editor.rgb);
         if(!editor.rgb)for(int i=0;i<8;++i){const auto r=layout.Swatch(i);ui::Round(g,r,7,colors[i]);if(editor.color.GetValue()==colors[i].GetValue())ui::Border(g,{r.X-3,r.Y-3,r.Width+6,r.Height+6},9,ui::foreground);}
         else for(int i=0;i<3;++i){
             const auto r=layout.Channel(i);ui::Text(g,array<wstring,3>{L"R",L"G",L"B"}[i],{32,r.Y-5,24,22},12,editor.channel==i?ui::accent:ui::muted);
             array<BYTE,3> base{editor.color.GetR(),editor.color.GetG(),editor.color.GetB()};base[i]=0;Color start(255,base[0],base[1],base[2]);base[i]=255;Color end(255,base[0],base[1],base[2]);LinearGradientBrush brush(PointF(r.X,r.Y),PointF(r.GetRight(),r.Y),start,end);g.FillRectangle(&brush,r);
             const float x=r.X+ChannelValue(i)*r.Width/255;Pen marker(ui::foreground,2);g.DrawLine(&marker,x,r.Y-3,x,r.GetBottom()+3);ui::Text(g,to_wstring(ChannelValue(i)),{178,r.Y+12,36,18},10,ui::muted);
         }
-    }else if(kind==Annotation::Mosaic)ui::Text(g,L"8 / 16 / 24 / 32 px\n从原图取色，覆盖区域内标注。",{32,420,190,76},12,ui::muted);
-    else ui::Text(g,L"点击图片中的标注，\n即可移动、删除或调整属性。",{32,420,190,76},12,ui::muted);
+    }else if(kind==Annotation::Mosaic)ui::Text(g,tr("screen.editor.035"),{32,420,190,76},12,ui::muted);
+    else ui::Text(g,tr("screen.editor.036"),{32,420,190,76},12,ui::muted);
     if(WatermarkMode()){
         const auto& a=WaterProperties();ui::Round(g,{252,82,layout.width-276,58},10,ui::surface);
-        const array<wstring,4> labels{L"不透明度 "+to_wstring(static_cast<int>(lround(a.opacity*100)))+L"%",L"角度 "+to_wstring(static_cast<int>(a.angle))+L"°",L"间距 "+to_wstring(static_cast<int>(a.spacing))+L" px",a.tiled?L"排列：平铺":L"排列：单个"};
+        const array<wstring,4> labels{tr("screen.editor.037")+to_wstring(static_cast<int>(lround(a.opacity*100)))+L"%",tr("screen.editor.038")+to_wstring(static_cast<int>(a.angle))+L"°",tr("screen.editor.039")+to_wstring(static_cast<int>(a.spacing))+L" px",a.tiled?tr("screen.editor.040"):tr("screen.editor.041")};
         for(int i=0;i<4;++i)Button(g,layout.WaterProperty(i),labels[i],false,i!=2||a.tiled);
     }
     DrawCanvas(g);
@@ -319,12 +319,12 @@ void DrawEditor(HWND hwnd,HDC target=nullptr){
     }
     if(editor.textActive)DrawTextInput(g);
     if(editor.source)ui::Text(g,to_wstring(editor.source->GetWidth())+L" × "+to_wstring(editor.source->GetHeight())+L" px",{24,layout.height-37,220,24},12,ui::muted);
-    Button(g,layout.minus,L"−");Button(g,layout.plus,L"+");Button(g,layout.actual,L"100%");Button(g,layout.fit,L"适应画布");ui::Text(g,to_wstring(static_cast<int>(lround(editor.zoom*100)))+L"%",{layout.minus.GetRight()+8,layout.height-35,64,22},12);
-    ui::Text(g,editor.notice.empty()?Hint():L"编辑内容已保留，请修正问题后重试保存。",{264,layout.height-38,max(40.0f,layout.width-658),30},11,editor.notice.empty()?ui::muted:ui::danger);
+    Button(g,layout.minus,L"−");Button(g,layout.plus,L"+");Button(g,layout.actual,L"100%");Button(g,layout.fit,tr("screen.editor.042"));ui::Text(g,to_wstring(static_cast<int>(lround(editor.zoom*100)))+L"%",{layout.minus.GetRight()+8,layout.height-35,64,22},12);
+    ui::Text(g,editor.notice.empty()?Hint():tr("screen.editor.043"),{264,layout.height-38,max(40.0f,layout.width-658),30},11,editor.notice.empty()?ui::muted:ui::danger);
     if(editor.confirm){
         SolidBrush shade(Color(180,0,0,0));g.FillRectangle(&shade,0.0f,0.0f,layout.width,layout.height);const auto r=layout.Dialog();ui::Round(g,r,14,ui::surface);ui::Border(g,r,14,ui::accent);
-        ui::Text(g,L"保留这次编辑吗？",{r.X+24,r.Y+22,430,32},22,ui::foreground,true);ui::Text(g,L"图片中有未保存的修改，原截图始终保留。",{r.X+24,r.Y+72,430,48},14,ui::muted);
-        Button(g,layout.DialogButton(0),L"保存并返回",true);Button(g,layout.DialogButton(1),L"放弃修改");Button(g,layout.DialogButton(2),L"继续编辑");
+        ui::Text(g,tr("screen.editor.044"),{r.X+24,r.Y+22,430,32},22,ui::foreground,true);ui::Text(g,tr("screen.editor.045"),{r.X+24,r.Y+72,430,48},14,ui::muted);
+        Button(g,layout.DialogButton(0),tr("screen.editor.028"),true);Button(g,layout.DialogButton(1),tr("screen.editor.046"));Button(g,layout.DialogButton(2),tr("screen.editor.047"));
     }
 }
 void Down(HWND hwnd,POINT p,bool middle){
@@ -470,11 +470,11 @@ LRESULT CALLBACK EditorProc(HWND hwnd,UINT msg,WPARAM wparam,LPARAM lparam){
 bool InitEditor(HINSTANCE instance,HWND owner,function<bool(unique_ptr<Bitmap>&,wstring&)> save,function<void()> cancel){
     WNDCLASSEXW cls{sizeof(cls)};cls.hInstance=instance;cls.lpfnWndProc=EditorProc;cls.style=CS_DBLCLKS;cls.lpszClassName=L"ScreenShotPlus.Editor";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);WNDCLASSEXW existing{sizeof(existing)};
     if(!GetClassInfoExW(instance,cls.lpszClassName,&existing)&&!RegisterClassExW(&cls))return false;
-    editor.save=move(save);editor.cancel=move(cancel);editor.window=CreateWindowExW(WS_EX_TOOLWINDOW,cls.lpszClassName,L"ScreenShotPlus 编辑截图",WS_POPUP|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX,0,0,initialWidth,initialHeight,owner,nullptr,instance,nullptr);
+    editor.save=move(save);editor.cancel=move(cancel);editor.window=CreateWindowExW(WS_EX_TOOLWINDOW,cls.lpszClassName,tr("screen.editor.048"),WS_POPUP|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX,0,0,initialWidth,initialHeight,owner,nullptr,instance,nullptr);
     if(editor.window)ui::Corners(editor.window);return editor.window!=nullptr;
 }
 bool ShowEditor(Bitmap& image,wstring& error){
-    if(!editor.window){error=L"编辑窗口尚未初始化。";return false;}auto copy=RenderAnnotations(image,{},error);if(!copy)return false;
+    if(!editor.window){error=tr("screen.editor.049");return false;}auto copy=RenderAnnotations(image,{},error);if(!copy)return false;
     ResetContent();editor.source=move(copy);editor.live={};editor.draft={};editor.watermark={};editor.tool=Annotation::Stroke;editor.color=colors[0];editor.penSize=4;editor.textSize=28;editor.blockSize=16;editor.rgb=editor.space=false;editor.notice.clear();editor.pan={};
     if(IsZoomed(editor.window))ShowWindow(editor.window,SW_RESTORE);
     POINT cursor{};GetCursorPos(&cursor);MONITORINFO info{sizeof(info)};GetMonitorInfoW(MonitorFromPoint(cursor,MONITOR_DEFAULTTONEAREST),&info);

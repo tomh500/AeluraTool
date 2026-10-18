@@ -8,7 +8,7 @@ bool ApplyConfiguredSettings(HWND, Hotkeys&, Config& current, const Config& next
     Config candidate = next;
     candidate.modifiers = current.modifiers; candidate.key = current.key;
     candidate.printScreen = false; candidate.startup = false;
-    if (!ValidConfig(candidate)) { error = L"设置无效。"; return false; }
+    if (!ValidConfig(candidate)) { error = tr("screen.hotkeys.001"); return false; }
     filesystem::path destination;
     if (!SaveConfigWithFallback(file, fallback, candidate, destination, error)) return false;
     current = candidate; if (savedFile) *savedFile = move(destination); return true;

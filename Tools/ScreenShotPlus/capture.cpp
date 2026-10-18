@@ -150,7 +150,7 @@ void Finish(bool accept, wstring error = {}) {
         selection.desktop.right - selection.desktop.left, selection.desktop.bottom - selection.desktop.top);
     if (accept && r.right > r.left && r.bottom > r.top) {
         cropped.reset(selection.image->Clone(Rect(r.left, r.top, r.right - r.left, r.bottom - r.top), PixelFormat32bppRGB));
-        if (!cropped || cropped->GetLastStatus() != Ok) { cropped.reset(); error = L"裁剪图像失败，请重试。"; }
+        if (!cropped || cropped->GetLastStatus() != Ok) { cropped.reset(); error = tr("screen.capture.001"); }
     }
     selection.lastCapture = cropped ? RECT{selection.desktop.left + r.left, selection.desktop.top + r.top,
         selection.desktop.left + r.right, selection.desktop.top + r.bottom} : RECT{};
@@ -229,7 +229,7 @@ void DrawSelection(HWND hwnd, HDC target = nullptr) {
         ui::Border(g, {x, y, labelWidth, labelHeight}, 12 * scale, Color(130, ui::accent.GetR(), ui::accent.GetG(), ui::accent.GetB()));
         ui::Text(g, to_wstring(w) + L" × " + to_wstring(h) + L" px", {x + 14 * scale, y + 10 * scale,
             170 * scale, labelHeight}, 14 * scale, ui::accent, true);
-        ui::Text(g, !selection.active && !IsRectEmpty(&selection.hovered) ? L"单击截取" : L"松开保存",
+        ui::Text(g, !selection.active && !IsRectEmpty(&selection.hovered) ? tr("screen.capture.002") : tr("screen.capture.003"),
             {x + 172 * scale, y + 12 * scale, 72 * scale, 24 * scale}, 11 * scale, ui::muted);
     } else {
         const auto hint = HintRect(scale);
@@ -252,8 +252,8 @@ void DrawSelection(HWND hwnd, HDC target = nullptr) {
         }
         ui::Round(g, {16 * scale, 17 * scale, 32 * scale, 32 * scale}, 9 * scale, ui::accent);
         ui::Text(g, L"＋", {19 * scale, 18 * scale, 30 * scale, 28 * scale}, 21 * scale, ui::background, true);
-        ui::Text(g, L"选择你的截图区域", {62 * scale, 11 * scale, width - 74 * scale, 27 * scale}, 16 * scale, ui::foreground, true);
-        ui::Text(g, captureWindowSelection ? L"单击窗口 / 拖动框选 · Esc / 右键取消" : L"拖动框选 · 松开保存 · Esc / 右键取消",
+        ui::Text(g, tr("screen.capture.004"), {62 * scale, 11 * scale, width - 74 * scale, 27 * scale}, 16 * scale, ui::foreground, true);
+        ui::Text(g, captureWindowSelection ? tr("screen.capture.005") : tr("screen.capture.006"),
             {62 * scale, 37 * scale, width - 74 * scale, 23 * scale}, 11 * scale, ui::muted);
         g.Restore(saved);
         if (captureGuides) {
@@ -312,7 +312,7 @@ LRESULT CALLBACK SelectionProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
     case WM_ACTIVATE:
         if (LOWORD(wparam) == WA_INACTIVE && selection.window == hwnd && !selection.finishing) Finish(false);
         return 0;
-    case WM_DISPLAYCHANGE: Finish(false, L"显示器布局发生变化，请重新截图。" ); return 0;
+    case WM_DISPLAYCHANGE: Finish(false, tr("screen.capture.007") ); return 0;
     case WM_DPICHANGED: return 0; // Frozen desktop and selection always use physical pixels.
     }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -323,11 +323,11 @@ void ConfigureCapture(unsigned shade, bool guides, bool animate, bool windowSele
     captureWindowSelection = windowSelection;
 }
 bool BeginSelection(HINSTANCE instance, CaptureDone done, wstring& error) {
-    if (selection.window) { error = L"已有截图正在进行。"; return false; }
+    if (selection.window) { error = tr("screen.capture.008"); return false; }
     CancelVisualEffects(); DwmFlush();
     const int x = GetSystemMetrics(SM_XVIRTUALSCREEN), y = GetSystemMetrics(SM_YVIRTUALSCREEN);
     const int width = GetSystemMetrics(SM_CXVIRTUALSCREEN), height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    if (width <= 0 || height <= 0) { error = L"无法获取桌面尺寸。"; return false; }
+    if (width <= 0 || height <= 0) { error = tr("screen.capture.009"); return false; }
     selection.desktop = {x, y, x + width, y + height};
     selection.windows.clear(); selection.hovered = {}; selection.dragging = false;
     if (captureWindowSelection) EnumWindows(CollectWindow, 0);
@@ -348,7 +348,7 @@ bool BeginSelection(HINSTANCE instance, CaptureDone done, wstring& error) {
     if (screen) ReleaseDC(nullptr, screen);
     if (ok) selection.image.reset(Bitmap::FromHBITMAP(selection.handle, nullptr));
     if (!ok || !selection.image || selection.image->GetLastStatus() != Ok) {
-        ClearImage(); error = L"无法捕获桌面，请检查会话是否锁定。"; return false;
+        ClearImage(); error = tr("screen.capture.010"); return false;
     }
     // Precompute the dimmed desktop once; entry frames only blend two native
     // cached surfaces. Crop pixels always come from the untouched image.
@@ -360,7 +360,7 @@ bool BeginSelection(HINSTANCE instance, CaptureDone done, wstring& error) {
     }
     if (!selection.frozenOld || !selection.dimOld || selection.frozenOld == HGDI_ERROR || selection.dimOld == HGDI_ERROR ||
         !BitBlt(selection.dimDC, 0, 0, width, height, selection.frozenDC, 0, 0, SRCCOPY)) {
-        ClearImage(); error = L"无法准备截图绘图缓冲，请重试。"; return false;
+        ClearImage(); error = tr("screen.capture.011"); return false;
     }
     { Graphics dim(selection.dimDC); SolidBrush shade(Color(static_cast<BYTE>(captureShade * 255 / 100), 0, 0, 0)); dim.FillRectangle(&shade, 0, 0, width, height); }
     WNDCLASSEXW cls{sizeof(cls)};
@@ -368,15 +368,15 @@ bool BeginSelection(HINSTANCE instance, CaptureDone done, wstring& error) {
     cls.hCursor = LoadCursorW(nullptr, IDC_CROSS); cls.lpszClassName = L"ScreenShotPlus.Selection";
     WNDCLASSEXW existing{sizeof(existing)};
     if (!GetClassInfoExW(instance, cls.lpszClassName, &existing) && !RegisterClassExW(&cls)) {
-        ClearImage(); error = L"无法初始化框选窗口。"; return false;
+        ClearImage(); error = tr("screen.capture.012"); return false;
     }
     selection.done = move(done); selection.begin = {}; selection.active = false; selection.lastCapture = {};
     GetCursorPos(&selection.end); selection.end.x -= x; selection.end.y -= y;
     HoverWindow(selection.end);
     selection.layered = captureAnimation && ui::DecorativeMotion(); selection.alpha = -1; selection.chrome = {};
     selection.window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | (selection.layered ? WS_EX_LAYERED : 0), cls.lpszClassName,
-        L"ScreenShotPlus 区域截图", WS_POPUP, x, y, width, height, nullptr, nullptr, instance, nullptr);
-    if (!selection.window) { ClearImage(); selection.done = {}; error = L"无法创建框选窗口。"; return false; }
+        tr("screen.capture.013"), WS_POPUP, x, y, width, height, nullptr, nullptr, instance, nullptr);
+    if (!selection.window) { ClearImage(); selection.done = {}; error = tr("screen.capture.014"); return false; }
     if (selection.layered && !SetLayeredWindowAttributes(selection.window, 0, 1, LWA_ALPHA)) {
         selection.layered = false;
         SetWindowLongPtrW(selection.window, GWL_EXSTYLE, GetWindowLongPtrW(selection.window, GWL_EXSTYLE) & ~WS_EX_LAYERED);

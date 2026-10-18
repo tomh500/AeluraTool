@@ -10,6 +10,7 @@ inline constexpr WPARAM Settings = 2;
 inline constexpr WPARAM Preview = 3;
 inline constexpr WPARAM Shutdown = 4;
 inline constexpr WPARAM CanCapture = 5;
+inline constexpr WPARAM SetLanguage = 6;
 inline constexpr LRESULT Accepted = 1;
 inline constexpr LRESULT Busy = 2;
 }

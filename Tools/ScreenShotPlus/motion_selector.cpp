@@ -3,11 +3,11 @@
 using namespace std;
 using namespace Gdiplus;
 namespace {
-constexpr array<const wchar_t*, 5> names{L"轻度", L"中", L"高", L"极高", L"终极"};
-constexpr array<const wchar_t*, 5> descriptions{
-    L"安静、直接。保留必要的状态反馈。", L"轻盈的淡入与滑动，日常使用更从容。",
-    L"层次、回弹与跟随，流畅而有分寸。", L"星轨、流光与专属启动，让每一步更鲜活。",
-    L"完整的星光动效，专属启动与细节演绎。"};
+auto names() { return array<std::wstring, 5>{tr("screen.motion_selector.001"), tr("screen.motion_selector.002"), tr("screen.motion_selector.003"), tr("screen.motion_selector.004"), tr("screen.motion_selector.005")}; }
+auto descriptions() { return array<std::wstring, 5>{
+    tr("screen.motion_selector.006"), tr("screen.motion_selector.007"),
+    tr("screen.motion_selector.008"), tr("screen.motion_selector.009"),
+    tr("screen.motion_selector.010")}; }
 double Now() { return GetTickCount64() / 1000.0; }
 Color Mix(Color a, Color b, float t) {
     const auto channel = [t](BYTE x, BYTE y) { return static_cast<BYTE>(clamp(lround(x + (y - x) * t), 0L, 255L)); };
@@ -133,17 +133,17 @@ void Resonance(Graphics& g, float x, double now, double started, float opacity) 
 unsigned MotionStop(int logicalX) { return static_cast<unsigned>(clamp(lround((logicalX - 62) / 94.0), 0L, 4L)); }
 void MotionSelector::Reset(unsigned value) {
     level = min(value, 4U); position = static_cast<float>(level);
-    previousTitle = title = names[level]; labelTime = ultimateTime = engravingTime = resonanceTime = 0; wasHovered = false;
+    previousTitle = title = names()[level]; labelTime = ultimateTime = engravingTime = resonanceTime = 0; wasHovered = false;
 }
 wstring MotionSelector::CurrentTitle() {
     const double now = Now();
-    if (ultimateTime && now >= ultimateTime) { previousTitle = title; title = L"终极"; labelTime = now; ultimateTime = 0; }
+    if (ultimateTime && now >= ultimateTime) { previousTitle = title; title = tr("screen.motion_selector.005"); labelTime = now; ultimateTime = 0; }
     return title;
 }
 void MotionSelector::Select(unsigned value) {
     value = min(value, 4U); if (value == level) return;
     CurrentTitle(); previousTitle = title; level = value;
-    title = value == 4 ? L"XuanRikka" : names[value];
+    title = value == 4 ? L"XuanRikka" : names()[value];
     labelTime = Now(); ultimateTime = value == 4 ? labelTime + .38 : 0;
     resonanceTime = value == 4 && ui::accent.GetValue() == ui::AccentColor(2).GetValue() ? labelTime : 0;
 }
@@ -159,7 +159,7 @@ bool MotionSelector::Draw(Graphics& g, HWND hwnd, bool hovered, bool focused) {
     const float hover = ui::AnimateValue(hwnd, 6002, hovered ? 1.0f : 0.0f, .16, 0, true);
     ui::Round(g, {24, 152, 452, 232}, 18, Color(255, 33, 39, 49));
     ui::Border(g, {24.5f, 152.5f, 451, 231}, 18, Mix(Mix(Color(255, 64, 73, 88), ui::accent, stellar * .25f), Color(255, 126, 102, 200), premium * .48f));
-    ui::Text(g, L"动画强度", {44, 170, 250, 24}, 13, ui::muted);
+    ui::Text(g, tr("screen.motion_selector.011"), {44, 170, 250, 24}, 13, ui::muted);
     const auto info = ui::GetMotionInfo(hwnd);
     ui::Round(g, {378, 168, 76, 25}, 12, Color(255, 44, 51, 65));
     CenterText(g, to_wstring(static_cast<unsigned>(lround(info.refreshRate))) + L" Hz", {378, 168, 76, 25}, 11, ui::muted);
@@ -169,7 +169,7 @@ bool MotionSelector::Draw(Graphics& g, HWND hwnd, bool hovered, bool focused) {
     if (textProgress < 1) CenterText(g, previousTitle, {52, 200 - textProgress * 10, 396, 32}, 22, Alpha(titleColor, 1 - textProgress), true);
     CenterText(g, title, {52, 200 + (1 - textProgress) * 10, 396, 32}, title == L"XuanRikka" ? 21.0f : 23.0f, Alpha(titleColor, textProgress), true);
     g.Restore(textState);
-    CenterText(g, level == 4 ? L"ULTIMATE · 星光随行" : level == 3 ? L"STELLAR MOTION · 流光与星轨" : L"FLUENT MOTION · 连贯每一步",
+    CenterText(g, level == 4 ? tr("screen.motion_selector.012") : level == 3 ? tr("screen.motion_selector.013") : tr("screen.motion_selector.014"),
         {44, 237, 412, 24}, 10.5f, Mix(Mix(ui::muted, ui::accent, stellar * .25f), Color(255, 185, 169, 225), premium));
     const RectF track{48, 274, 404, 30};
     ui::Round(g, track, 15, Color(255, 57, 64, 78));
@@ -200,8 +200,8 @@ bool MotionSelector::Draw(Graphics& g, HWND hwnd, bool hovered, bool focused) {
     ui::Border(g, {knob - diameter / 2 + .5f, 289 - diameter / 2 + .5f, diameter - 1, diameter - 1}, diameter / 2,
         Mix(Color(255, 201, 209, 221), Color(255, 218, 192, 255), premium));
     if (focused) ui::Border(g, {knob - 20, 269, 40, 40}, 20, Mix(ui::accent, Color(255, 181, 141, 255), premium));
-    for (unsigned i = 0; i < 5; ++i) CenterText(g, names[i], {30 + 94.0f * i, 318, 64, 26}, 12,
+    for (unsigned i = 0; i < 5; ++i) CenterText(g, names()[i], {30 + 94.0f * i, 318, 64, 26}, 12,
         level == i ? (i == 4 ? Color(255, 192, 160, 255) : ui::accent) : ui::muted, level == i);
-    CenterText(g, descriptions[level], {40, 351, 420, 22}, 11.5f, ui::muted);
+    CenterText(g, descriptions()[level], {40, 351, 420, 22}, 11.5f, ui::muted);
     return level >= 3 || premium > .001f || stellar > .001f || ultimateTime || textProgress < 1 || engraving > .001f;
 }

@@ -215,14 +215,14 @@ filesystem::path KnownFolder(REFKNOWNFOLDERID id) {
 bool RevealFile(const filesystem::path& path, wstring& error) {
     error.clear(); error_code ec;
     if (!path.is_absolute() || !filesystem::is_regular_file(path, ec)) {
-        error = L"无法定位截图：文件已移动、删除或无法访问。"; return false;
+        error = tr("screen.ui.001"); return false;
     }
     PIDLIST_ABSOLUTE item = nullptr;
     HRESULT result = SHParseDisplayName(path.c_str(), nullptr, &item, 0, nullptr);
     if (SUCCEEDED(result)) result = SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
     CoTaskMemFree(item);
     if (FAILED(result)) {
-        error = L"无法在资源管理器中定位截图（错误 " + to_wstring(static_cast<unsigned long>(result)) + L"）。";
+        error = tr("screen.ui.002") + to_wstring(static_cast<unsigned long>(result)) + L"）。";
         return false;
     }
     return true;
@@ -237,7 +237,7 @@ bool PickFolder(HWND owner, filesystem::path& path) {
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return false;
     DWORD options = 0; dialog->GetOptions(&options);
     dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
-    dialog->SetTitle(L"选择截图保存目录");
+    dialog->SetTitle(tr("screen.ui.003"));
     IShellItem* initial = nullptr;
     if (SUCCEEDED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&initial)))) {
         dialog->SetFolder(initial); initial->Release();

@@ -45,7 +45,7 @@ void DrawPreview(HWND hwnd, HDC target = nullptr) {
         }
         if (preview.mouse.x >= 0) {
             const float s = ui::Scale(hwnd); g.ScaleTransform(s, s);
-            ui::Button(g, hwnd, PinnedButton(false), L"还", false, ui::Inside(preview.mouse, PinnedButton(false)));
+            ui::Button(g, hwnd, PinnedButton(false), tr("screen.preview.001"), false, ui::Inside(preview.mouse, PinnedButton(false)));
             ui::Button(g, hwnd, PinnedButton(true), L"×", false, ui::Inside(preview.mouse, PinnedButton(true)));
         }
         return;
@@ -59,8 +59,8 @@ void DrawPreview(HWND hwnd, HDC target = nullptr) {
         g.DrawLine(&tick, 17.0f, 25.0f, 17 + first * 4, 25 + first * 4);
         if (check > 1.0f / 3) { const float second = (check - 1.0f / 3) * 1.5f; g.DrawLine(&tick, 21.0f, 29.0f, 21 + second * 9, 29 - second * 10); }
     }
-    ui::Text(g, ui::Inside(preview.mouse, pinButton) ? L"钉在桌面" : preview.dragStatus.empty() ? (preview.file.empty() ? L"临时图片 · 未保存" : L"已保存 PNG") : preview.dragStatus, {40, 17, static_cast<float>(viewWidth - 126), 26}, 14, ui::accent, true);
-    ui::Button(g, hwnd, pinButton, L"钉", false, ui::Inside(preview.mouse, pinButton));
+    ui::Text(g, ui::Inside(preview.mouse, pinButton) ? tr("screen.preview.002") : preview.dragStatus.empty() ? (preview.file.empty() ? tr("screen.preview.003") : tr("screen.preview.004")) : preview.dragStatus, {40, 17, static_cast<float>(viewWidth - 126), 26}, 14, ui::accent, true);
+    ui::Button(g, hwnd, pinButton, tr("screen.preview.005"), false, ui::Inside(preview.mouse, pinButton));
     ui::Button(g, hwnd, closeButton, L"×", false, ui::Inside(preview.mouse, closeButton));
     ui::Round(g, imageRect, 10, ui::surface);
     const auto motion = ui::AnimateControl(hwnd, imageRect, ui::Inside(preview.mouse, imageRect));
@@ -110,9 +110,9 @@ void DrawPreview(HWND hwnd, HDC target = nullptr) {
             viewHeight - 58 + 3 * (1 - frameReveal), 94, 18}, 7.5f,
             Color(static_cast<BYTE>(bloom * 85), ui::accent.GetR(), ui::accent.GetG(), ui::accent.GetB()));
     }
-    if (preview.hints) ui::Text(g, preview.file.empty() ? L"单击编辑保存 · 关闭后销毁" : preview.dragging ? L"移动到目标位置，松开即可复制" :
-        preview.rightClickLocation ? L"单击编辑 · 拖动分享 · 右键定位" : L"单击编辑 · 拖动分享", {16, static_cast<float>(viewHeight - 63), imageRect.Width, 24}, 12);
-    if (preview.filename) ui::Text(g, preview.file.empty() ? L"尚未写入文件夹，编辑页保存后可拖动分享" : preview.file.filename().wstring(), {16, static_cast<float>(viewHeight - 35), imageRect.Width, 22}, 10, ui::muted);
+    if (preview.hints) ui::Text(g, preview.file.empty() ? tr("screen.preview.006") : preview.dragging ? tr("screen.preview.007") :
+        preview.rightClickLocation ? tr("screen.preview.008") : tr("screen.preview.009"), {16, static_cast<float>(viewHeight - 63), imageRect.Width, 24}, 12);
+    if (preview.filename) ui::Text(g, preview.file.empty() ? tr("screen.preview.010") : preview.file.filename().wstring(), {16, static_cast<float>(viewHeight - 35), imageRect.Width, 22}, 10, ui::muted);
 }
 LRESULT CALLBACK PreviewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     if (ui::MotionMessage(hwnd, msg, wparam, lparam)) return 0;
@@ -223,7 +223,7 @@ bool InitPreview(HINSTANCE instance, function<void()> drag, function<void()> edi
     WNDCLASSEXW existing{sizeof(existing)};
     if (!GetClassInfoExW(instance, cls.lpszClassName, &existing) && !RegisterClassExW(&cls)) return false;
     preview.window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | (preview.topmost ? WS_EX_TOPMOST : 0),
-        cls.lpszClassName, L"ScreenShotPlus 最新截图", WS_POPUP, 0, 0, 320, 294, nullptr, nullptr, instance, nullptr);
+        cls.lpszClassName, tr("screen.preview.011"), WS_POPUP, 0, 0, 320, 294, nullptr, nullptr, instance, nullptr);
     preview.drag = move(drag); preview.edit = move(edit); preview.locate = move(locate);
     preview.dismiss = move(dismiss);
     if (preview.window) ui::Corners(preview.window);
@@ -283,7 +283,7 @@ RECT PreviewImageScreenRect() {
 }
 void PreviewDragResult(bool accepted) {
     if (accepted && preview.hideAfterDrag) { DismissPreview(); return; }
-    preview.dragStatus = accepted ? L"已复制 · 原图保留" : L"已返回 · 原图保留";
+    preview.dragStatus = accepted ? tr("screen.preview.012") : tr("screen.preview.013");
     if (preview.window) InvalidateRect(preview.window, nullptr, FALSE);
 }
 void HidePreview() {

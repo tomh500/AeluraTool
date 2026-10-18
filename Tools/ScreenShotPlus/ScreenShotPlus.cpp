@@ -1,7 +1,7 @@
 #include "app.h"
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR args, int) {
     if (std::wstring(args) != L"--aelura-host") {
-        MessageBoxW(nullptr, L"请从遥汐工具箱启动截图组件。快捷键由工具箱统一管理。", L"遥汐工具箱", MB_OK | MB_ICONINFORMATION); return 1;
+        MessageBoxW(nullptr, tr("screen.screenshotplus.001"), tr("screen.screenshotplus.002"), MB_OK | MB_ICONINFORMATION); return 1;
     }
     const HRESULT ole = OleInitialize(nullptr); if (FAILED(ole)) return 2;
     Gdiplus::GdiplusStartupInput input; ULONG_PTR token{};

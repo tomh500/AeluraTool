@@ -1,4 +1,4 @@
-﻿#include "app.h"
+#include "app.h"
 #include "../../Integration/CaptureProtocol.h"
 #include "ui.h"
 #include "Resource.h"
@@ -23,7 +23,7 @@ namespace {
         HWND panel = nullptr;
         TrayIcon tray;
         HICON smallIcon = nullptr;
-        wstring notice = L"截图后自动保存，拖动缩略图即可分享。";
+        wstring notice = tr("screen.app.001");
         wstring trayWarning;
         POINT mouse{ -1, -1 }, pressed{};
         bool mouseDown = false;
@@ -107,14 +107,14 @@ namespace {
     void Notice(const wstring& text) { app.notice = text; ShowPanel(); }
     void LatestPreview(bool captured = false) {
         if (app.latest) ShowPreview(app.latest.get(), app.latestFile, app.latestPoint, app.config.previewSeconds, captured ? app.latestOrigin : RECT{});
-        else Notice(L"还没有截图。先点击“开始区域截图”。");
+        else Notice(tr("screen.app.002"));
     }
     void SavePending() {
         if (!app.pending || app.phase != App::Idle) return;
         if (app.config.manualSaveOnly) {
             HidePreview(); app.latest = move(app.pending); app.latestFile.clear();
             app.latestPoint = app.pendingPoint; app.latestOrigin = app.pendingOrigin;
-            app.notice = L"临时图片尚未保存；单击图片进入编辑页保存，关闭浮窗后销毁。";
+            app.notice = tr("screen.app.003");
             ShowWindow(app.panel, SW_HIDE); LatestPreview(true); return;
         }
         app.phase = App::Saving;
@@ -125,7 +125,7 @@ namespace {
         HidePreview(); app.latest = move(app.pending); app.latestFile = move(file);
         app.latestPoint = app.pendingPoint;
         app.latestOrigin = app.pendingOrigin;
-        app.notice = L"已自动保存 PNG，可直接拖动缩略图分享。";
+        app.notice = tr("screen.app.004");
         ShowWindow(app.panel, SW_HIDE); LatestPreview(true);
     }
     void StartCapture() {
@@ -159,9 +159,9 @@ namespace {
         const bool accepted = result == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY;
         EndDragVisual(accepted); PreviewDragResult(accepted);
         app.phase = App::Idle;
-        if (FAILED(result)) Notice(L"拖放失败；请确认截图文件仍存在，且接收程序支持文件拖入。");
+        if (FAILED(result)) Notice(tr("screen.app.005"));
         else {
-            app.notice = result == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY ? L"文件已拖出，原截图仍保留。" : L"拖放已取消，原截图仍保留。";
+            app.notice = result == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY ? tr("screen.app.006") : tr("screen.app.007");
             InvalidateRect(app.panel, nullptr, FALSE);
         }
     }
@@ -182,7 +182,7 @@ namespace {
         filesystem::path file;
         if (!SavePng(*image, app.config.folder, file, error)) return false;
         HidePreview(); app.latest = move(image); app.latestFile = move(file);
-        app.phase = App::Idle; app.notice = L"编辑后的 PNG 已保存，拖动缩略图即可分享。";
+        app.phase = App::Idle; app.notice = tr("screen.app.008");
         LatestPreview(); return true;
     }
     void CancelEdit() {
@@ -192,7 +192,7 @@ namespace {
     void DismissLatest() {
         if (app.phase == App::Idle && app.latestFile.empty()) {
             app.latest.reset(); app.latestOrigin = {}; app.restorePreview = false;
-            app.notice = L"临时图片已销毁。可开始新的截图。";
+            app.notice = tr("screen.app.009");
             InvalidateRect(app.panel, nullptr, FALSE);
         }
     }
@@ -209,7 +209,7 @@ namespace {
         if (RegisterTrayIcon(app.tray)) {
             SetPropW(app.panel, L"ScreenShotPlus.TrayRegistered", reinterpret_cast<HANDLE>(1));
             KillTimer(app.panel, trayRetryTimer);
-            if (!app.trayWarning.empty() && app.notice == app.trayWarning) app.notice = L"托盘已恢复，关闭面板后可继续截图。";
+            if (!app.trayWarning.empty() && app.notice == app.trayWarning) app.notice = tr("screen.app.010");
             app.trayWarning.clear();
         }
         else {
@@ -240,19 +240,19 @@ namespace {
         ui::Text(g, L"S", { 35, 29, 30, 34 }, 24, ui::background, true);
         ui::Text(g, L"ScreenShotPlus", { 78, 27, 278, 36 }, 23, ui::foreground, true);
         ui::Button(g, hwnd, closeButton, L"×", false, ui::Inside(app.mouse, closeButton));
-        ui::Text(g, L"截取 · 保存 · 拖动分享", { 24, 92, 372, 28 }, 17);
+        ui::Text(g, tr("screen.app.011"), { 24, 92, 372, 28 }, 17);
         ui::Text(g, L"v1.7.2", { 328, 98, 68, 22 }, 12, ui::accent);
         ui::Text(g, app.notice, { 24, 128, 372, 40 }, 12, ui::muted);
-        const array<wstring, 5> labels{ L"开始区域截图 · 遥汐托管", L"显示最新截图",
-            L"打开保存目录", L"设置", L"退出程序" };
+        const array<wstring, 5> labels{ tr("screen.app.012"), tr("screen.app.013"),
+            tr("screen.app.014"), tr("screen.app.015"), tr("screen.app.016") };
         for (size_t i = 0; i < buttons.size(); ++i) {
             const auto state = g.Save();
             if (launch) g.TranslateTransform(0, 20 * (1 - Ease((progress - 0.82f - static_cast<float>(i) * 0.018f) / 0.10f)));
             ui::Button(g, hwnd, buttons[i], labels[i], i == 0, ui::Inside(app.mouse, buttons[i]));
             g.Restore(state);
         }
-        if (app.pending) ui::Button(g, hwnd, retryButton, L"重试保存未保存的截图", false, ui::Inside(app.mouse, retryButton));
-        ui::Text(g, app.tray.registered ? L"关闭此面板后，程序仍在托盘运行" : L"托盘不可用，面板会保留；可在上方退出程序",
+        if (app.pending) ui::Button(g, hwnd, retryButton, tr("screen.app.017"), false, ui::Inside(app.mouse, retryButton));
+        ui::Text(g, app.tray.registered ? tr("screen.app.018") : tr("screen.app.019"),
             { 24, 530, 372, 24 }, 12, ui::muted);
         if (launch) {
             DrawLaunchScene(g, scene, app.config.animationLevel);
@@ -266,6 +266,13 @@ namespace {
     LRESULT CALLBACK PanelProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         if (message == Aelura::Capture::Message) {
             using namespace Aelura::Capture;
+            if (wparam == SetLanguage) {
+                if (lparam != 1 && lparam != 2) return 0;
+                aelura::i18n::select(lparam == 1 ? 1 : 2);
+                app.notice = tr("screen.app.001");
+                EnumThreadWindows(GetCurrentThreadId(), [](HWND window, LPARAM)->BOOL { InvalidateRect(window, nullptr, FALSE); return TRUE; }, 0);
+                return Accepted;
+            }
             if (wparam == Shutdown) { DestroyWindow(hwnd); return Accepted; }
             if (app.exiting) return Busy;
             if (wparam == CanCapture || wparam == Start) {
@@ -311,7 +318,7 @@ namespace {
         case WM_HOTKEY: return 0; // Global shortcuts belong exclusively to the toolbox.
         case WM_SETTINGS_SAVED:
             if (app.pending) SavePending();
-            else Notice(L"设置已保存，下次启动仍然有效。配置：" + app.configFile.wstring());
+            else Notice(tr("screen.app.020") + app.configFile.wstring());
             return 0;
         case WM_MOUSEMOVE: {
             app.mouse = ui::Mouse(hwnd, lparam);
@@ -355,7 +362,7 @@ namespace {
                 if (i == 0) StartCapture();
                 else if (i == 1) LatestPreview();
                 else if (i == 2) {
-                    if (!ui::OpenFolder(app.config.folder)) Notice(L"无法打开保存目录；请在设置中更换目录。");
+                    if (!ui::OpenFolder(app.config.folder)) Notice(tr("screen.app.021"));
                 }
                 else if (i == 3) {
                     ShowWindow(hwnd, SW_HIDE); ShowSettings(app.config);
@@ -402,7 +409,7 @@ int RunApp(HINSTANCE instance, [[maybe_unused]] const filesystem::path& configFi
     app.allowPortableConfig = false;
     wstring warning; app.config = LoadConfig(app.configFile, warning);
     app.config.startup = false; app.config.printScreen = false;
-    if (app.config.manualSaveOnly)app.notice = L"临时截图仅保存在内存中；进入编辑页保存，关闭浮窗后销毁。";
+    if (app.config.manualSaveOnly)app.notice = tr("screen.app.022");
     ConfigureUi();
     app.launching = !trayStartup && app.config.startupAnimation && ui::DecorativeMotion(3);
     if (!warning.empty()) app.notice = warning;
@@ -427,7 +434,7 @@ int RunApp(HINSTANCE instance, [[maybe_unused]] const filesystem::path& configFi
     app.tray.data.hWnd = app.panel; app.tray.data.uID = 1;
     app.tray.data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
     app.tray.data.uCallbackMessage = WM_TRAY; app.tray.data.hIcon = app.smallIcon ? app.smallIcon : cls.hIcon;
-    wcscpy_s(app.tray.data.szTip, L"ScreenShotPlus · 区域截图与拖动分享"); AddTray();
+    wcscpy_s(app.tray.data.szTip, tr("screen.app.023")); AddTray();
     const auto hotkeyWarning = RegisterConfiguredHotkeys(app.panel, app.hotkeys, app.config);
     if (!hotkeyWarning.empty()) app.notice += L" " + hotkeyWarning;
     app.initialized = true;

@@ -1,50 +1,62 @@
 <Window x:Class="AeluraTool.MainWindow"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="遥汐 · AeluraTool">
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="AeluraTool">
  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
   <Grid.Resources>
    <Style x:Key="Card" TargetType="Border"><Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/><Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="12"/><Setter Property="Padding" Value="22"/></Style>
    <Style TargetType="TextBlock"><Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/></Style>
   </Grid.Resources>
   <Grid.ColumnDefinitions><ColumnDefinition Width="210"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-  <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0" Padding="18,28">
+  <Border x:Name="SidebarShell" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0" Padding="18,28">
    <Grid>
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel Margin="10,0,0,32" Spacing="5"><TextBlock Text="遥汐" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="AELURA TOOL" FontSize="11" CharacterSpacing="180" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel Margin="10,0,0,32" Spacing="5"><TextBlock x:Name="Localized1" Text="" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="AELURA TOOL" FontSize="11" CharacterSpacing="180" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
     <StackPanel Grid.Row="1" Spacing="6">
-     <Button x:Name="HomeNav" Content="全部工具" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
-     <TextBlock Text="分类" FontSize="12" Margin="12,22,0,6" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-     <Button x:Name="ImageNav" Content="图像处理" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
-     <Button x:Name="FilesNav" Content="文件管理" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
-     <Button x:Name="GamesNav" Content="游戏工具" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
+     <Button x:Name="HomeNav" Content="" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
+     <TextBlock x:Name="Localized2" Text="" FontSize="12" Margin="12,22,0,6" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+     <Button x:Name="ImageNav" Content="" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
+     <Button x:Name="FilesNav" Content="" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
+     <Button x:Name="GamesNav" Content="" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
     </StackPanel>
-    <StackPanel Grid.Row="2" Spacing="6"><Button x:Name="KeysNav" Content="快捷键" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/><Button x:Name="PreferencesNav" Content="设置" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/></StackPanel>
+    <StackPanel Grid.Row="2" Spacing="6"><Button x:Name="KeysNav" Content="" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/><Button x:Name="PreferencesNav" Content="" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/></StackPanel>
    </Grid>
   </Border>
-  <Grid Grid.Column="1" Padding="32,28" RowSpacing="18">
+  <Grid x:Name="ContentShell" Grid.Column="1" Padding="32,28" RowSpacing="18">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
    <Grid ColumnSpacing="24"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="320"/></Grid.ColumnDefinitions>
-    <StackPanel Spacing="5"><TextBlock x:Name="PageTitle" Text="全部工具" FontSize="28" FontWeight="SemiBold"/><TextBlock x:Name="PageDescription" Text="找到现在需要的工具。" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-    <AutoSuggestBox x:Name="Search" Grid.Column="1" PlaceholderText="搜索工具、功能或关键词" QueryIcon="Find" VerticalAlignment="Center" AutomationProperties.Name="搜索工具"/>
+    <StackPanel Spacing="5"><TextBlock x:Name="PageTitle" Text="" FontSize="28" FontWeight="SemiBold"/><TextBlock x:Name="PageDescription" Text="" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <AutoSuggestBox x:Name="Search" Grid.Column="1" PlaceholderText="" QueryIcon="Find" VerticalAlignment="Center" AutomationProperties.Name=""/>
    </Grid>
    <InfoBar x:Name="Status" Grid.Row="1" IsOpen="False" IsClosable="True"/>
    <TextBlock x:Name="ResultCount" Grid.Row="2" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="18">
-    <StackPanel x:Name="HomePage" Spacing="16"><StackPanel x:Name="ToolCards" Spacing="12"/><TextBlock x:Name="NoResults" Text="没有找到匹配的工具，试试其他关键词。" Visibility="Collapsed"/></StackPanel>
-    <StackPanel x:Name="KeysPage" Spacing="18" Visibility="Collapsed"><AutoSuggestBox x:Name="KeySearch" PlaceholderText="搜索操作、分类或按键" QueryIcon="Find" AutomationProperties.Name="搜索快捷键"/><StackPanel x:Name="KeyRows" Spacing="8"/><TextBlock x:Name="NoKeys" Text="没有找到匹配的快捷键。" Visibility="Collapsed"/><TextBlock Text="快捷键在遥汐运行时生效。" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel x:Name="HomePage" Spacing="16"><StackPanel x:Name="ToolCards" Spacing="12"/><TextBlock x:Name="NoResults" Text="" Visibility="Collapsed"/></StackPanel>
+    <StackPanel x:Name="KeysPage" Spacing="18" Visibility="Collapsed"><AutoSuggestBox x:Name="KeySearch" PlaceholderText="" QueryIcon="Find" AutomationProperties.Name=""/><StackPanel x:Name="KeyRows" Spacing="8"/><TextBlock x:Name="NoKeys" Text="" Visibility="Collapsed"/><TextBlock x:Name="Localized3" Text="" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
     <StackPanel x:Name="PreferencesPage" Spacing="18" Visibility="Collapsed">
-     <Border Style="{StaticResource Card}"><StackPanel Spacing="14"><TextBlock Text="外观" FontSize="18" FontWeight="SemiBold"/><ComboBox x:Name="ThemeChoice" Header="主题" Width="240"><ComboBoxItem Content="跟随系统"/><ComboBoxItem Content="浅色"/><ComboBoxItem Content="深色"/></ComboBox></StackPanel></Border>
-     <Border Style="{StaticResource Card}"><StackPanel Spacing="10"><TextBlock Text="遥汐" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="AeluraTool" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><Button x:Name="LicensesButton" Content="第三方许可"/></StackPanel></Border>
+     <Border Style="{StaticResource Card}"><StackPanel Spacing="14"><TextBlock x:Name="Localized4" Text="" FontSize="18" FontWeight="SemiBold"/><ComboBox x:Name="ThemeChoice" Header="" Width="240"><ComboBoxItem x:Name="Localized5" Content=""/><ComboBoxItem x:Name="Localized6" Content=""/><ComboBoxItem x:Name="Localized7" Content=""/></ComboBox><ComboBox x:Name="LanguageChoice" Header="" Width="280"><ComboBoxItem x:Name="Localized8" Content=""/><ComboBoxItem x:Name="Localized9" Content=""/><ComboBoxItem x:Name="Localized10" Content=""/></ComboBox><ToggleSwitch x:Name="StartupMotionSwitch" Header="" IsOn="True"/><TextBlock x:Name="Localized11" Text="" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><Button x:Name="PreviewMotionButton" Content=""/></StackPanel></Border>
+     <Border Style="{StaticResource Card}"><StackPanel Spacing="10"><TextBlock x:Name="Localized12" Text="" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="AeluraTool" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><Button x:Name="LicensesButton" Content=""/></StackPanel></Border>
     </StackPanel>
     <StackPanel x:Name="MovePage" Spacing="18" Visibility="Collapsed"><Border Style="{StaticResource Card}"><StackPanel Spacing="18">
-     <TextBlock Text="迁移到新位置后，原路径仍可继续访问。" TextWrapping="Wrap"/>
-     <TextBox x:Name="SourcePath" Header="原位置" PlaceholderText="文件或文件夹的完整路径"/>
-     <StackPanel Orientation="Horizontal" Spacing="10"><Button x:Name="SourceFileButton" Content="选择文件"/><Button x:Name="SourceFolderButton" Content="选择文件夹"/></StackPanel>
-     <TextBox x:Name="DestinationPath" Header="目标文件夹" PlaceholderText="选择用于接收文件的文件夹"/><Button x:Name="DestinationButton" Content="选择目标文件夹" HorizontalAlignment="Left"/>
+     <TextBlock x:Name="Localized13" Text="" TextWrapping="Wrap"/>
+     <TextBox x:Name="SourcePath" Header="" PlaceholderText=""/>
+     <StackPanel Orientation="Horizontal" Spacing="10"><Button x:Name="SourceFileButton" Content=""/><Button x:Name="SourceFolderButton" Content=""/></StackPanel>
+     <TextBox x:Name="DestinationPath" Header="" PlaceholderText=""/><Button x:Name="DestinationButton" Content="" HorizontalAlignment="Left"/>
      <TextBlock x:Name="MoveSummary" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><ProgressBar x:Name="MoveProgress" Visibility="Collapsed" Maximum="100"/>
-     <StackPanel Orientation="Horizontal" Spacing="10"><Button x:Name="CheckMoveButton" Content="检查路径"/><Button x:Name="MoveButton" Content="开始迁移" Style="{StaticResource AccentButtonStyle}"/><Button x:Name="CancelMoveButton" Content="取消" Visibility="Collapsed"/></StackPanel>
+     <StackPanel Orientation="Horizontal" Spacing="10"><Button x:Name="CheckMoveButton" Content=""/><Button x:Name="MoveButton" Content="" Style="{StaticResource AccentButtonStyle}"/><Button x:Name="CancelMoveButton" Content="" Visibility="Collapsed"/></StackPanel>
     </StackPanel></Border></StackPanel>
    </StackPanel></ScrollViewer>
+  </Grid>
+  <Grid x:Name="StartupLayer" Grid.Column="1" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw">
+   <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14">
+    <Grid x:Name="TideMark" Width="300" Height="64" RenderTransformOrigin="0.5,0.5">
+     <Grid.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Grid.RenderTransform>
+     <Ellipse Width="10" Height="10" Fill="{ThemeResource AccentFillColorDefaultBrush}" HorizontalAlignment="Center" VerticalAlignment="Top" Opacity="0.65"/>
+     <Path Data="M0,36 C50,4 100,4 150,36 S250,68 300,36" Stroke="{ThemeResource AccentFillColorDefaultBrush}" StrokeThickness="1.8"/>
+     <Path Data="M0,44 C50,14 100,14 150,44 S250,74 300,44" Stroke="{ThemeResource AccentFillColorDefaultBrush}" StrokeThickness="1" Opacity="0.25"/>
+    </Grid>
+    <TextBlock x:Name="StartupName" HorizontalAlignment="Center" FontSize="34" FontWeight="SemiBold"/>
+    <TextBlock Text="AELURA TOOL" HorizontalAlignment="Center" FontSize="11" CharacterSpacing="240" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+   </StackPanel>
   </Grid>
  </Grid>
 </Window>

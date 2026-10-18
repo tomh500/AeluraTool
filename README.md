@@ -6,6 +6,8 @@ Windows 桌面工具集合，主界面使用 C++/WinRT 与 WinUI 3。
 
 - 全部工具与图像处理、文件管理、游戏工具分类；支持中文、英文关键词及空格分词搜索。
 - 跟随系统、浅色、深色主题，背景、文字、控件和标题栏随主题变化，保存后跨启动恢复。
+- 默认按 Windows 显示语言选择界面：中文系统使用中文，其余使用英语；设置中可手动切换并即时生效。主界面、快捷键、迁移提示及截图组件共用中英文资源；StrikeSense 继承宿主语言并保留原有双语实现。
+- 原生启动动画：两条潮线与光点，首次或版本更新后播放约 0.85 秒，日常启动仅轻淡入。可在设置关闭或预览，遵循 Windows 动画设置，点击或按键立即跳过。
 - 可搜索的快捷键列表：开始截图、最近截图、打开文件迁移、打开 StrikeSense、PrintScreen。逐项启停和编辑，注册冲突或保存失败时保留旧设置。升级保留原截图按键。
 - 截图与标注：区域、窗口截图，设置及最近截图。截图组件随主程序退出。
 - 文件迁移：选择文件或目录，迁移后保留原路径访问；同盘重命名，跨盘复制并逐字节校验。支持空目录、进度、取消、目标冲突保护、失败回滚和恢复信息。目录使用 junction，文件使用符号链接。
@@ -29,7 +31,7 @@ Windows 桌面工具集合，主界面使用 C++/WinRT 与 WinUI 3。
 
 ## 配置和恢复
 
-主题及宿主快捷键位于 %LOCALAPPDATA%/AeluraTool/hotkeys.ini；MSIX 可能重定向至包的 LocalCache/Local。截图设置位于同目录 ScreenShotPlus/config.json。StrikeSense 继续使用 %USERPROFILE%/StrikeSense。
+主题、语言、启动动画及宿主快捷键位于 %LOCALAPPDATA%/AeluraTool/hotkeys.ini；MSIX 可能重定向至包的 LocalCache/Local。新配置默认跟随系统主题、自动语言并启用动画，保留已有主题选择。截图设置位于同目录 ScreenShotPlus/config.json。StrikeSense 继续使用 %USERPROFILE%/StrikeSense。
 
 迁移前关闭使用原文件的程序。禁止驱动器根目录、Windows 目录、用户和应用数据根目录、重解析点及网络路径；不能覆盖已有目标。目录链接要求支持 junction 的本地文件系统；文件符号链接需要开发者模式或管理员权限，预检失败不会移动原件。迁移过程中主窗口暂不允许关闭。
 
@@ -37,6 +39,6 @@ Windows 桌面工具集合，主界面使用 C++/WinRT 与 WinUI 3。
 
 ## 开发
 
-AGENTS.md 约定产品文案、主题、分类注册、快捷键和 Git 工作流。Integration/ToolCatalog.h 注册工具；Integration/HotkeyManager 管理宿主快捷键；Integration/FileMigration 为独立文件迁移核心。测试只在自动创建的临时目录操作，不迁移用户文件。
+AGENTS.md 约定产品文案、主题、分类注册、快捷键和 Git 工作流。Strings/zh-CN.json 与 Strings/en-US.json 保存共享文案，Integration/I18n 负责读取嵌入资源和语言选择，Tests/check_i18n.py 校验键集合及静态引用；开始菜单文案位于对应的 Resources.resw。Integration/ToolCatalog.h 注册工具；Integration/HotkeyManager 管理宿主快捷键；Integration/FileMigration 为独立文件迁移核心。测试只在自动创建的临时目录操作，不迁移用户文件。
 
 本地 Git 已建立初始快照和分功能提交，没有添加远程仓库。第三方来源与集成说明见 Tools/StrikeSense/ORIGIN.md、Tools/ScreenShotPlus/THIRD_PARTY_NOTICES.md。文件迁移为新的独立实现，未复制原 FreeMove_Square 源码。

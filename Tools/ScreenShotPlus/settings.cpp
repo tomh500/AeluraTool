@@ -1,4 +1,4 @@
-﻿#include "settings.h"
+#include "settings.h"
 #include "motion_selector.h"
 #include <cmath>
 using namespace std;
@@ -22,7 +22,7 @@ namespace {
         startupMotionButton{ 24, 486, 452, 44 }, captureMotionButton{ 24, 544, 452, 44 },
         dragMotionButton{ 24, 602, 452, 44 }, guidesButton{ 24, 340, 452, 44 }, shadeSliderHit{ 44, 222, 412, 52 },
         windowSelectionButton{ 24, 646, 452, 44 }, manualSaveButton{ 24, 654, 452, 44 };
-    constexpr array<const wchar_t*, 5> tabNames{ L"常规", L"动效", L"外观", L"截图", L"交互" };
+    auto tabNames() { return array<std::wstring, 5>{ tr("screen.settings.001"), tr("screen.settings.002"), tr("screen.settings.003"), tr("screen.settings.004"), tr("screen.settings.005") }; }
     const array<RectF, 6> interactionButtons{ { { 24, 158, 452, 44 },{ 24, 246, 452, 44 },
         { 24, 334, 452, 44 },{ 24, 422, 452, 44 },{ 24, 510, 452, 44 },{ 24, 598, 452, 44 } } };
     double Now() { return GetTickCount64() / 1000.0; }
@@ -87,38 +87,38 @@ namespace {
         ui::AnimateControl(hwnd, cancelButton, ui::Inside(settings.mouse, cancelButton));
     }
     void DrawGeneral(Graphics& g, HWND hwnd) {
-        ui::Text(g, L"保存目录", { 24, 116, 452, 24 }, 12, ui::muted);
+        ui::Text(g, tr("screen.settings.006"), { 24, 116, 452, 24 }, 12, ui::muted);
         ui::Round(g, { 24, 143, 452, 29 }, 8, ui::surface);
         ui::Text(g, settings.working.folder.wstring(), { 36, 147, 428, 24 }, 11.5f);
-        ui::Button(g, hwnd, folderButton, L"选择文件夹…", false, ui::Inside(settings.mouse, folderButton));
-        ui::Text(g, L"快捷键由遥汐工具箱统一管理", { 24, 244, 452, 30 }, 16, ui::accent);
-        ui::Text(g, L"请打开工具箱的“全局快捷键”页面修改。", { 24, 290, 452, 44 }, 12, ui::muted);
+        ui::Button(g, hwnd, folderButton, tr("screen.settings.007"), false, ui::Inside(settings.mouse, folderButton));
+        ui::Text(g, tr("screen.settings.008"), { 24, 244, 452, 30 }, 16, ui::accent);
+        ui::Text(g, tr("screen.settings.009"), { 24, 290, 452, 44 }, 12, ui::muted);
         const auto seconds = settings.working.previewSeconds;
-        ui::Button(g, hwnd, secondsButton, seconds ? L"缩略图：" + to_wstring(seconds) + L" 秒后收起   点击切换" :
-            L"缩略图：保留至关闭或下一次截图   点击切换", false, ui::Inside(settings.mouse, secondsButton));
-        ui::Text(g, L"悬停和拖拽期间暂停倒计时，临时图片关闭后销毁。", { 24, 506, 452, 24 }, 12, ui::muted);
-        ui::Text(g, L"此组件由遥汐工具箱启动和关闭。", { 24, 554, 452, 44 }, 12, ui::muted);
-        ui::Text(g, L"配置文件：" + settings.configFile.wstring(), { 24, 618, 452, 30 }, 11, ui::muted);
-        ui::Toggle(g, hwnd, manualSaveButton, L"不主动保存（仅编辑页保存时写入）", settings.working.manualSaveOnly, ui::Inside(settings.mouse, manualSaveButton));
+        ui::Button(g, hwnd, secondsButton, seconds ? tr("screen.settings.010") + to_wstring(seconds) + tr("screen.settings.011") :
+            tr("screen.settings.012"), false, ui::Inside(settings.mouse, secondsButton));
+        ui::Text(g, tr("screen.settings.013"), { 24, 506, 452, 24 }, 12, ui::muted);
+        ui::Text(g, tr("screen.settings.014"), { 24, 554, 452, 44 }, 12, ui::muted);
+        ui::Text(g, tr("screen.settings.015") + settings.configFile.wstring(), { 24, 618, 452, 30 }, 11, ui::muted);
+        ui::Toggle(g, hwnd, manualSaveButton, tr("screen.settings.016"), settings.working.manualSaveOnly, ui::Inside(settings.mouse, manualSaveButton));
     }
     bool DrawMotion(Graphics& g, HWND hwnd) {
-        ui::Text(g, L"让每一次操作，都有恰到好处的回应。", { 24, 122, 452, 22 }, 12, ui::muted);
+        ui::Text(g, tr("screen.settings.017"), { 24, 122, 452, 22 }, 12, ui::muted);
         const bool continuous = settings.selector.Draw(g, hwnd, ui::Inside(settings.mouse, motionSliderHit), settings.focused == 1);
-        ui::Text(g, L"动画节奏", { 24, 397, 452, 22 }, 12, ui::muted);
-        constexpr array<const wchar_t*, 3> speeds{ L"敏捷", L"均衡", L"舒缓" };
+        ui::Text(g, tr("screen.settings.018"), { 24, 397, 452, 22 }, 12, ui::muted);
+        const array<std::wstring, 3> speeds{ tr("screen.settings.019"), tr("screen.settings.020"), tr("screen.settings.021") };
         for (unsigned i = 0; i < 3; ++i) {
             const auto rect = Choice(i, 3, 428); ui::Button(g, hwnd, rect, speeds[i], settings.working.animationSpeed == i, ui::Inside(settings.mouse, rect));
         }
-        ui::Toggle(g, hwnd, startupMotionButton, L"启动动画", settings.working.startupAnimation, ui::Inside(settings.mouse, startupMotionButton));
-        ui::Toggle(g, hwnd, captureMotionButton, L"唤醒截图与完成转场", settings.working.captureAnimation, ui::Inside(settings.mouse, captureMotionButton));
-        ui::Toggle(g, hwnd, dragMotionButton, L"拖动图片与落点反馈", settings.working.dragAnimation, ui::Inside(settings.mouse, dragMotionButton));
-        ui::Text(g, L"极高与终极拥有专属启动演绎。滑块始终丝滑响应。\n系统关闭动画时，应用动效会尊重系统设置。", { 24, 660, 452, 40 }, 11, ui::muted);
+        ui::Toggle(g, hwnd, startupMotionButton, tr("screen.settings.022"), settings.working.startupAnimation, ui::Inside(settings.mouse, startupMotionButton));
+        ui::Toggle(g, hwnd, captureMotionButton, tr("screen.settings.023"), settings.working.captureAnimation, ui::Inside(settings.mouse, captureMotionButton));
+        ui::Toggle(g, hwnd, dragMotionButton, tr("screen.settings.024"), settings.working.dragAnimation, ui::Inside(settings.mouse, dragMotionButton));
+        ui::Text(g, tr("screen.settings.025"), { 24, 660, 452, 40 }, 11, ui::muted);
         return continuous;
     }
     void DrawAppearance(Graphics& g, HWND hwnd) {
-        ui::Text(g, L"强调色", { 24, 128, 452, 22 }, 13, ui::muted);
+        ui::Text(g, tr("screen.settings.026"), { 24, 128, 452, 22 }, 13, ui::muted);
         ui::Round(g, { 24, 158, 452, 130 }, 16, Color(255, 33, 39, 49));
-        constexpr array<const wchar_t*, 5> colors{ L"薄荷", L"晴蓝", L"鸢紫", L"玫瑰", L"流金" };
+        const array<std::wstring, 5> colors{ tr("screen.settings.027"), tr("screen.settings.028"), tr("screen.settings.029"), tr("screen.settings.030"), tr("screen.settings.031") };
         for (unsigned i = 0; i < 5; ++i) {
             const RectF hit{ 34 + 90.0f * i, 175, 72, 89 };
             const auto motion = ui::AnimateControl(hwnd, hit, ui::Inside(settings.mouse, hit), settings.working.accentColor == i);
@@ -136,25 +136,25 @@ namespace {
         ui::Border(g, { 24.5f, 308.5f, 451, 111 }, 16, Color(255, 58, 71, 85));
         ui::Round(g, { 44, 332, 104, 64 }, 9, Alpha(ui::accent, 28));
         Pen line(Alpha(ui::accent, 180), 1.5f); g.DrawLine(&line, 58.0f, 382.0f, 84.0f, 358.0f); g.DrawLine(&line, 84.0f, 358.0f, 109.0f, 379.0f); g.DrawLine(&line, 109.0f, 379.0f, 134.0f, 347.0f);
-        ui::Text(g, L"你的截图，你的风格", { 170, 332, 275, 30 }, 16, ui::foreground, true);
-        ui::Text(g, L"颜色会即时预览，保存后长期生效。", { 170, 373, 275, 24 }, 11.5f, ui::muted);
-        ui::Text(g, L"缩略图停靠位置", { 24, 438, 452, 24 }, 12, ui::muted);
-        constexpr array<const wchar_t*, 4> corners{ L"↘  右下", L"↙  左下", L"↗  右上", L"↖  左上" };
+        ui::Text(g, tr("screen.settings.032"), { 170, 332, 275, 30 }, 16, ui::foreground, true);
+        ui::Text(g, tr("screen.settings.033"), { 170, 373, 275, 24 }, 11.5f, ui::muted);
+        ui::Text(g, tr("screen.settings.034"), { 24, 438, 452, 24 }, 12, ui::muted);
+        const array<std::wstring, 4> corners{ tr("screen.settings.035"), tr("screen.settings.036"), tr("screen.settings.037"), tr("screen.settings.038") };
         for (unsigned i = 0; i < 4; ++i) {
             const auto rect = Choice(i % 2, 2, i < 2 ? 468.0f : 516.0f);
             ui::Button(g, hwnd, rect, corners[i], settings.working.previewCorner == i, ui::Inside(settings.mouse, rect));
         }
-        ui::Text(g, L"缩略图大小", { 24, 577, 452, 22 }, 12, ui::muted);
-        constexpr array<const wchar_t*, 3> sizes{ L"紧凑", L"标准", L"宽阔" };
+        ui::Text(g, tr("screen.settings.039"), { 24, 577, 452, 22 }, 12, ui::muted);
+        const array<std::wstring, 3> sizes{ tr("screen.settings.040"), tr("screen.settings.041"), tr("screen.settings.042") };
         for (unsigned i = 0; i < 3; ++i) {
             const auto rect = Choice(i, 3, 607); ui::Button(g, hwnd, rect, sizes[i], settings.working.previewSize == i, ui::Inside(settings.mouse, rect));
         }
-        ui::Text(g, L"缩略图保留图片比例；尺寸与位置应用于下一次截图。", { 24, 661, 452, 28 }, 11, ui::muted);
+        ui::Text(g, tr("screen.settings.043"), { 24, 661, 452, 28 }, 11, ui::muted);
     }
     void DrawScreenshot(Graphics& g, HWND hwnd) {
-        ui::Text(g, L"把注意力留给想捕获的内容。", { 24, 124, 452, 22 }, 12, ui::muted);
+        ui::Text(g, tr("screen.settings.044"), { 24, 124, 452, 22 }, 12, ui::muted);
         ui::Round(g, { 24, 158, 452, 158 }, 16, Color(255, 33, 39, 49));
-        ui::Text(g, L"截图背景暗度", { 44, 177, 260, 26 }, 14, ui::foreground, true);
+        ui::Text(g, tr("screen.settings.045"), { 44, 177, 260, 26 }, 14, ui::foreground, true);
         ui::Text(g, to_wstring(settings.working.captureShade) + L"%", { 387, 177, 66, 26 }, 14, ui::accent, true);
         const float target = (settings.working.captureShade - 25) / 55.0f;
         const float value = ui::AnimateValue(hwnd, 6300, target, .14, target, true), x = 62 + value * 376;
@@ -162,9 +162,9 @@ namespace {
         ui::Round(g, { 48, 234, max(14.0f, x - 48), 18 }, 9, ui::accent);
         ui::Round(g, { x - 13, 230, 26, 26 }, 13, ui::foreground);
         if (settings.focused == 2) ui::Border(g, { x - 17, 226, 34, 34 }, 17, ui::accent);
-        ui::Text(g, L"柔和 25%", { 48, 271, 184, 24 }, 11, ui::muted);
-        ui::Text(g, L"专注 80%", { 379, 271, 78, 24 }, 11, ui::muted);
-        ui::Toggle(g, hwnd, guidesButton, L"显示截图准星", settings.working.captureGuides, ui::Inside(settings.mouse, guidesButton));
+        ui::Text(g, tr("screen.settings.046"), { 48, 271, 184, 24 }, 11, ui::muted);
+        ui::Text(g, tr("screen.settings.047"), { 379, 271, 78, 24 }, 11, ui::muted);
+        ui::Toggle(g, hwnd, guidesButton, tr("screen.settings.048"), settings.working.captureGuides, ui::Inside(settings.mouse, guidesButton));
         ui::Round(g, { 24, 408, 452, 230 }, 16, Color(255, 31, 38, 47));
         const RectF view{ 44, 428, 412, 188 };
         const auto state = g.Save(); ui::ClipRound(g, view, 10);
@@ -179,30 +179,30 @@ namespace {
             Pen guide(Alpha(ui::accent, 150), 1); g.DrawLine(&guide, 103.0f, 471.0f, 143.0f, 471.0f); g.DrawLine(&guide, 123.0f, 451.0f, 123.0f, 491.0f);
         }
         ui::Round(g, { 209, 575, 83, 27 }, 8, Color(240, 29, 36, 46)); CenterText(g, L"252 × 96", { 209, 575, 83, 27 }, 10, ui::foreground);
-        CenterText(g, L"截图外观预览", { 139, 503, 222, 30 }, 14, ui::foreground, true); g.Restore(state);
-        ui::Toggle(g, hwnd, windowSelectionButton, L"预选择窗口", settings.working.captureWindowSelection, ui::Inside(settings.mouse, windowSelectionButton));
-        ui::Text(g, L"默认关闭；开启后悬停预览、单击截取窗口，仍可拖动框选。", { 24, 692, 452, 22 }, 10.5f, ui::muted);
+        CenterText(g, tr("screen.settings.049"), { 139, 503, 222, 30 }, 14, ui::foreground, true); g.Restore(state);
+        ui::Toggle(g, hwnd, windowSelectionButton, tr("screen.settings.050"), settings.working.captureWindowSelection, ui::Inside(settings.mouse, windowSelectionButton));
+        ui::Text(g, tr("screen.settings.051"), { 24, 692, 452, 22 }, 10.5f, ui::muted);
     }
     void DrawInteraction(Graphics& g, HWND hwnd) {
-        ui::Text(g, L"按你的习惯，调整图片预览与分享。", { 24, 124, 452, 22 }, 12, ui::muted);
+        ui::Text(g, tr("screen.settings.052"), { 24, 124, 452, 22 }, 12, ui::muted);
         const array<bool, 6> values{ settings.working.rightClickLocation, settings.working.previewFilename,
             settings.working.previewHints, settings.working.hideAfterDrag,
             settings.working.previewTopmost, settings.working.previewMovable };
-        constexpr array<const wchar_t*, 6> titles{ L"右键图片打开所在位置", L"显示图片文件名", L"显示图片操作提示", L"分享成功后收起缩略图",
-            L"浮窗永远置顶", L"允许拖动浮窗位置" };
-        constexpr array<const wchar_t*, 6> descriptions{
-            L"右键缩略图中的图片，在资源管理器中选中该 PNG。",
-            L"在缩略图底部显示已保存图片的文件名。",
-            L"显示单击编辑、拖动分享与右键定位的提示。",
-            L"接收程序确认复制后自动收起；取消或失败时保留。",
-            L"保持在普通应用窗口上方，不抢占键盘焦点。",
-            L"拖动标题或空白区域移动浮窗；拖动图片仍用于分享。" };
+        const array<std::wstring, 6> titles{ tr("screen.settings.053"), tr("screen.settings.054"), tr("screen.settings.055"), tr("screen.settings.056"),
+            tr("screen.settings.057"), tr("screen.settings.058") };
+        const array<std::wstring, 6> descriptions{
+            tr("screen.settings.059"),
+            tr("screen.settings.060"),
+            tr("screen.settings.061"),
+            tr("screen.settings.062"),
+            tr("screen.settings.063"),
+            tr("screen.settings.064") };
         for (unsigned i = 0; i < interactionButtons.size(); ++i) {
             const auto rect = interactionButtons[i];
             ui::Toggle(g, hwnd, rect, titles[i], values[i], ui::Inside(settings.mouse, rect));
             ui::Text(g, descriptions[i], { 24, rect.Y + 49, 452, 30 }, 11.5f, ui::muted);
         }
-        ui::Text(g, L"保存后应用于预览。收起浮窗后，截图文件仍然保留。", { 24, 686, 452, 24 }, 11.5f, ui::muted);
+        ui::Text(g, tr("screen.settings.065"), { 24, 686, 452, 24 }, 11.5f, ui::muted);
     }
     void DrawSettings(HWND hwnd, HDC target = nullptr) {
         ui::Paint paint(hwnd, target); Graphics g(paint.buffer);
@@ -224,13 +224,13 @@ namespace {
             return;
         }
         ui::Prepare(g, hwnd);
-        ui::Text(g, L"设置", { 24, 22, 240, 38 }, 25, ui::foreground, true);
+        ui::Text(g, tr("screen.settings.066"), { 24, 22, 240, 38 }, 25, ui::foreground, true);
         ui::Text(g, L"SCREENSHOTPLUS", { 301, 33, 133, 24 }, 9.5f, ui::muted);
         ui::Button(g, hwnd, closeButton, L"×", false, ui::Inside(settings.mouse, closeButton));
         ui::Round(g, { 24, 76, 452, 32 }, 9, Color(255, 31, 37, 46));
         const float tab = ui::AnimateValue(hwnd, 6200, static_cast<float>(settings.tab), .18, static_cast<float>(settings.tab));
         ui::Round(g, { 25 + 90.4f * tab, 77, 88.4f, 30 }, 8, Color(255, 56, 66, 79));
-        for (unsigned i = 0; i < tabNames.size(); ++i) CenterText(g, tabNames[i], Tab(i), 13, settings.tab == i ? ui::accent : ui::muted, settings.tab == i);
+        for (unsigned i = 0; i < tabNames().size(); ++i) CenterText(g, tabNames()[i], Tab(i), 13, settings.tab == i ? ui::accent : ui::muted, settings.tab == i);
         const float reveal = settings.pageReveal.Value(now);
         const auto state = g.Save(); g.TranslateTransform(0, (1 - reveal) * 7 * ui::MotionAmount());
         bool continuous = settings.pageReveal.Active(now);
@@ -242,8 +242,8 @@ namespace {
         g.Restore(state);
         ui::Text(g, settings.notice, { 24, 702, 452, 36 }, 11.5f, ui::danger);
         Pen divider(Color(255, 58, 68, 82), 1); g.DrawLine(&divider, 24.0f, 736.0f, 476.0f, 736.0f);
-        ui::Button(g, hwnd, saveButton, L"保存设置", true, ui::Inside(settings.mouse, saveButton));
-        ui::Button(g, hwnd, cancelButton, L"取消", false, ui::Inside(settings.mouse, cancelButton));
+        ui::Button(g, hwnd, saveButton, tr("screen.settings.067"), true, ui::Inside(settings.mouse, saveButton));
+        ui::Button(g, hwnd, cancelButton, tr("screen.settings.068"), false, ui::Inside(settings.mouse, cancelButton));
         ui::ContinuousMotion(hwnd, continuous);
     }
     void Cancel() { HideSettings(); PostMessageW(settings.owner, WM_SHOW_PANEL, 0, 0); }
@@ -256,7 +256,7 @@ namespace {
             }
             return;
         }
-        for (unsigned i = 0; i < tabNames.size(); ++i) if (hit(Tab(i))) { SwitchTab(i); return; }
+        for (unsigned i = 0; i < tabNames().size(); ++i) if (hit(Tab(i))) { SwitchTab(i); return; }
         settings.focused = 0;
         if (settings.tab == 0) {
             if (hit(manualSaveButton)) settings.working.manualSaveOnly = !settings.working.manualSaveOnly;
@@ -370,7 +370,7 @@ bool InitSettings(HINSTANCE instance, HWND owner, function<bool(const Config&, w
     WNDCLASSEXW existing{ sizeof(existing) };
     if (!GetClassInfoExW(instance, cls.lpszClassName, &existing) && !RegisterClassExW(&cls)) return false;
     settings.owner = owner; settings.apply = move(apply);
-    settings.window = CreateWindowExW(WS_EX_TOOLWINDOW, cls.lpszClassName, L"ScreenShotPlus 设置", WS_POPUP,
+    settings.window = CreateWindowExW(WS_EX_TOOLWINDOW, cls.lpszClassName, tr("screen.settings.069"), WS_POPUP,
         0, 0, 500, 812, owner, nullptr, instance, nullptr);
     if (settings.window) ui::Corners(settings.window);
     return settings.window != nullptr;

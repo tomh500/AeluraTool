@@ -179,19 +179,19 @@ void DrawLaunchScene(Graphics& g, const LaunchFrame& f, unsigned level) {
     g.Restore(badgeState);
     const float title = Smooth((p - .06f) / .12f), titleY = 290 + 12 * (1 - title) - 10 * f.depart;
     CenterText(g, L"ScreenShotPlus", {40, titleY, 340, 44}, 27, Tint(Color(255, 245, 245, 255), show * title), true);
-    CenterText(g, ultimate && f.secret ? L"XuanRikka · 星海频道已连接" : L"截取光影 · 收藏灵感", {60, titleY + 44, 300, 22}, 11, Tint(light, show * title * .65f));
+    CenterText(g, ultimate && f.secret ? tr("screen.launch_scene.001") : tr("screen.launch_scene.002"), {60, titleY + 44, 300, 22}, 11, Tint(light, show * title * .65f));
     const float quote = Smooth((p - .12f) / .07f) * show;
     CenterText(g, LaunchPoem, {20, 367 - f.voyage * 12, 380, 40}, 22,
         Tint(Color(255, 239, 239, 255), quote * f.poem));
     CenterText(g, LaunchVoyage, {20, 367 + f.poem * 12, 380, 40}, 23,
         Tint(Color(255, 239, 239, 255), quote * f.voyage), true);
-    CenterText(g, f.voyage > .5f ? L"已就绪，向星海出发" : L"星光，正在汇聚", {60, 414, 300, 24}, 11,
+    CenterText(g, f.voyage > .5f ? tr("screen.launch_scene.003") : tr("screen.launch_scene.004"), {60, 414, 300, 24}, 11,
         Tint(light, show * title * .58f));
     // One constellation has a small catalogue-like credit, visible only at
     // the moment it lights up. There is no persistent product watermark.
     const float credit = show * Smooth((p - .66f) / .035f) * (1 - Smooth((p - .76f) / .045f));
     Signature(g, L"XuanRikka", {321, 152}, -13, credit * .30f);
-    CenterText(g, ultimate ? L"轻触徽标寻星 · 其他位置进入工作台" : L"轻触任意位置，进入工作台", {40, 530, 340, 22}, 10,
+    CenterText(g, ultimate ? tr("screen.launch_scene.005") : tr("screen.launch_scene.006"), {40, 530, 340, 22}, 10,
         Tint(Color(255, 160, 176, 198), show * .65f));
     g.Restore(clip);
 }
@@ -214,8 +214,8 @@ void DrawExitScene(Graphics& g, float progress, bool secret) {
         g.DrawEllipse(&ring, 210 - radius, 223 - radius * .38f, radius * 2, radius * .76f);
     }
     const float words = appear * (1 - Smooth((p - .78f) / .22f));
-    CenterText(g, L"星光暂歇，灵感长存", {30, 328, 360, 40}, 23, Tint(light, words), true);
-    CenterText(g, secret ? L"XuanRikka：下次见，星海旅人" : L"XuanRikka · 愿每一帧都值得珍藏", {30, 380, 360, 26}, 11, Tint(light, words * .70f));
-    CenterText(g, L"轻触或按 Esc 立即退出", {40, 530, 340, 22}, 10, Tint(light, words * .45f));
+    CenterText(g, tr("screen.launch_scene.007"), {30, 328, 360, 40}, 23, Tint(light, words), true);
+    CenterText(g, secret ? tr("screen.launch_scene.008") : tr("screen.launch_scene.009"), {30, 380, 360, 26}, 11, Tint(light, words * .70f));
+    CenterText(g, tr("screen.launch_scene.010"), {40, 530, 340, 22}, 10, Tint(light, words * .45f));
     g.Restore(clip);
 }

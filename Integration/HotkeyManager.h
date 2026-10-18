@@ -10,6 +10,7 @@ struct Manager {
     void load(HWND hwnd, std::filesystem::path path);
     bool save(size_t index, UINT modifiers, UINT key, bool enabled, std::wstring& error);
     void release();
+    void localize();
 };
 std::wstring label(Binding const& binding);
 }
