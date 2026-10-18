@@ -1,0 +1,4 @@
+#pragma once
+#define IDI_SCREENSHOTPLUS 107
+#define IDI_SMALL 108
+#define IDR_THIRD_PARTY_NOTICES 301

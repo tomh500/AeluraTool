@@ -1,0 +1,8 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="AeluraTool.vcxproj" Id="cc02198f-6aef-453d-a863-e12a812c4856">
+    <Deploy />
+  </Project>
+</Solution>
