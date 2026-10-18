@@ -1,0 +1,47 @@
+﻿// @name: Steam 本地账号示例
+// @author: jingy
+// @provider: StrikeSense
+// @version: 2026.07.04
+// @notice: 演示如何从多元对象数据里提取指定字段并做 if / else if / elseif / else 判断
+
+string DescribeAccount(auto account){
+    if(account.most_recent){
+        return "最近登录";
+    }else if(account.allow_auto_login){
+        return "允许自动登录";
+    }elseif(account.remember_password){
+        return "记住密码";
+    }else{
+        return "普通账号";
+    }
+}
+
+auto accounts = GetSteamAccounts();
+int accountCount = Size(accounts);
+
+Log("Steam 账号总数=" + accountCount);
+
+for(int i=0; i<accountCount; i++){
+    auto account = accounts[i];
+    Log("----------------");
+    Log("persona_name=" + account.persona_name);
+    Log("account_name=" + account.account_name);
+    Log("steam_id64=" + account.steam_id64);
+    Log("userdata_path=" + account.userdata_path);
+    Log("账号标签=" + DescribeAccount(account));
+
+    if(account.has_localconfig){
+        string launchOptions = GetSteamLaunchOptions64(account.steam_id64);
+        if(Contains(launchOptions, "-novid")){
+            Log("该账号设置了 -novid");
+        }else if(Contains(launchOptions, "-vulkan")){
+            Log("该账号设置了 -vulkan");
+        }elseif(Contains(launchOptions, "-high")){
+            Log("该账号设置了 -high");
+        }else{
+            Log("该账号没有命中示例里的常见启动项");
+        }
+    }
+}
+
+return;

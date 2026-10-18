@@ -1,0 +1,1600 @@
+#include "cscript.h"
+
+#include "config.h"
+#include "console_log.h"
+#include "input_environment.h"
+#include "pages.h"
+#include "steam_helper.h"
+#include "volume_mixer.h"
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cctype>
+#include <cwctype>
+#include <deque>
+#include <fstream>
+#include <iostream>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <sstream>
+#include <thread>
+#include <unordered_map>
+#include <unordered_set>
+
+namespace cscript {
+namespace {
+
+using clock_type = std::chrono::steady_clock;
+
+constexpr int kTickerHz = 64;
+constexpr auto kTickerInterval = std::chrono::microseconds(1'000'000 / kTickerHz);
+constexpr UINT kDefaultTickerVirtualKey = VK_OEM_6;
+constexpr char kManagedBlockStart[] = "//--StrikeSense CScript Ticker--";
+constexpr char kManagedBlockEnd[] = "//--StrikeSense CScript Ticker END--";
+constexpr bool kVerboseRuntimeLog = false;
+
+struct parsed_script {
+    std::vector<std::string> on_pressed;
+    std::vector<std::string> on_released;
+};
+
+struct script_record {
+    mounted_script public_state;
+    parsed_script parsed;
+    std::wstring previous_trigger_source_key;
+};
+
+struct command_sequence {
+    std::uint64_t script_id = 0;
+    std::string phase;
+    std::string source_key;
+    std::vector<std::string> commands;
+    std::size_t next_command = 0;
+};
+
+struct script_lane {
+    std::deque<command_sequence> sequences;
+    bool ready = false;
+};
+
+struct custom_trigger_job {
+    UINT virtual_key = 0;
+    bool extended_key = false;
+    std::filesystem::path cfg_path;
+    std::string content;
+    std::wstring trigger_key_name;
+    std::wstring trigger_file_name;
+};
+
+std::atomic<bool> g_enabled{ false };
+std::atomic<bool> g_worker_running{ false };
+std::thread g_worker;
+HHOOK g_keyboard_hook = nullptr;
+std::thread g_keyboard_hook_thread;
+std::mutex g_hook_lifecycle_mutex;
+std::mutex g_hook_ready_mutex;
+std::condition_variable g_hook_ready_cv;
+DWORD g_keyboard_hook_thread_id = 0;
+bool g_hook_ready = false;
+bool g_hook_install_succeeded = false;
+std::mutex g_state_mutex;
+std::condition_variable g_worker_cv;
+std::vector<script_record> g_scripts;
+std::vector<mounted_script> g_public_scripts;
+std::unordered_map<std::uint64_t, script_lane> g_lanes;
+std::deque<std::uint64_t> g_ready_lanes;
+std::unordered_map<std::uint64_t, bool> g_physical_down;
+std::filesystem::path g_ticker_cfg_path;
+std::wstring g_runtime_status = L"尚未启动";
+std::uint64_t g_next_script_id = 1;
+bool g_clear_pending = false;
+UINT g_ticker_virtual_key = kDefaultTickerVirtualKey;
+bool g_ticker_extended_key = false;
+std::wstring g_ticker_source_key = L"]";
+std::wstring g_previous_ticker_source_key;
+bool g_performance_mode = false;
+std::vector<std::wstring> g_pending_unbind_keys;
+
+std::filesystem::path ConfigPath()
+{
+    return std::filesystem::path(config::GetConfigDir()) / L"cscript_config.json";
+}
+
+std::filesystem::path BaseDirectory()
+{
+    wchar_t profile[MAX_PATH]{};
+    GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
+    return std::filesystem::path(profile) / L"StrikeSense";
+}
+
+std::wstring TrimWide(std::wstring value)
+{
+    const auto first = std::find_if_not(value.begin(), value.end(), [](wchar_t ch) {
+        return std::iswspace(ch) != 0;
+    });
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](wchar_t ch) {
+        return std::iswspace(ch) != 0;
+    }).base();
+    if (first >= last) return {};
+    return std::wstring(first, last);
+}
+
+bool IsTriggerFileNameValid(const std::wstring& file_name)
+{
+    if (file_name.empty()) return true;
+    static constexpr wchar_t kInvalidChars[] = L"<>:\"/\\|?*";
+    return file_name.find_first_of(kInvalidChars) == std::wstring::npos;
+}
+
+std::wstring NormalizeTriggerFileName(std::wstring file_name)
+{
+    file_name = TrimWide(std::move(file_name));
+    if (file_name.size() > 4) {
+        std::wstring suffix = file_name.substr(file_name.size() - 4);
+        std::transform(suffix.begin(), suffix.end(), suffix.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(ch));
+        });
+        if (suffix == L".cfg") file_name.erase(file_name.size() - 4);
+    }
+    return file_name;
+}
+
+std::filesystem::path BuildCustomTickerPath(const std::filesystem::path& cfg_directory, const std::wstring& file_name)
+{
+    return cfg_directory / L"CustomTicker" / (file_name + L".cfg");
+}
+
+bool UsesCustomTrigger(const mounted_script& script)
+{
+    return !script.trigger_source_key.empty() && !script.trigger_file_name.empty();
+}
+
+void EnsureDefaultScripts()
+{
+    const std::filesystem::path directory = BaseDirectory() / L"sourcecfg";
+    std::filesystem::create_directories(directory);
+    const std::filesystem::path example = directory / L"testscript.cscript";
+    if (!std::filesystem::exists(example)) {
+        static constexpr char kExample[] = R"cscript(// StrikeSense CScript 示例：请在界面中为本脚本绑定一个单按键。
+@OnPressed {
+    "+forward":0;
+    "alias a b;+jump":1;
+}
+
+@OnReleased {
+    "-forward":0;
+    "-jump":1;
+    "+lookatweapon":2;
+    "-lookatweapon":3;
+}
+)cscript";
+        std::ofstream output(example, std::ios::binary);
+        if (output.is_open()) {
+            output.write(kExample, static_cast<std::streamsize>(std::char_traits<char>::length(kExample)));
+            std::wcout << L"[CScript] 已生成示例脚本：" << example.wstring() << std::endl;
+        }
+    }
+
+    const std::filesystem::path jumpthrow = directory / L"jumpthrow.cscript";
+    if (!std::filesystem::exists(jumpthrow)) {
+        static constexpr char kJumpthrow[] = R"cscript(// 跳投：请在界面中绑定跳投键。
+@OnPressed {
+    "echoln \"/notificationE 跳投\";+jump":0;
+    "-attack":1;
+    "-attack2":2;
+}
+
+@OnReleased {
+    "echoln \"/notificationD 跳投\";-jump":0;
+}
+)cscript";
+        std::ofstream output(jumpthrow, std::ios::binary);
+        if (output.is_open()) {
+            output.write(kJumpthrow, static_cast<std::streamsize>(std::char_traits<char>::length(kJumpthrow)));
+            std::wcout << L"[CScript] 已生成跳投脚本：" << jumpthrow.wstring() << std::endl;
+        }
+    }
+}
+
+std::string WideToUtf8(const std::wstring& value)
+{
+    if (value.empty()) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+        nullptr, 0, nullptr, nullptr);
+    if (size <= 0) return {};
+    std::string result(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+        result.data(), size, nullptr, nullptr);
+    return result;
+}
+
+std::wstring Utf8ToWide(const std::string& value)
+{
+    if (value.empty()) return {};
+    const int size = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
+    if (size <= 0) return std::wstring(value.begin(), value.end());
+    std::wstring result(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), size);
+    return result;
+}
+
+std::string ToLowerAscii(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+std::string TrimAscii(std::string value)
+{
+    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    });
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    }).base();
+    if (first >= last) return {};
+    return std::string(first, last);
+}
+
+std::string StripComments(const std::string& text)
+{
+    std::string result;
+    result.reserve(text.size());
+    bool in_string = false;
+    bool escaped = false;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char ch = text[i];
+        if (in_string) {
+            result.push_back(ch);
+            if (escaped) escaped = false;
+            else if (ch == '\\') escaped = true;
+            else if (ch == '"') in_string = false;
+            continue;
+        }
+        if (ch == '"') {
+            in_string = true;
+            result.push_back(ch);
+            continue;
+        }
+        if (ch == '/' && i + 1 < text.size() && text[i + 1] == '/') {
+            while (i < text.size() && text[i] != '\n') ++i;
+            if (i < text.size()) result.push_back('\n');
+            continue;
+        }
+        result.push_back(ch);
+    }
+    return result;
+}
+
+std::vector<std::string> SplitSourceCommands(const std::string& command)
+{
+    std::vector<std::string> result;
+    std::string current;
+    bool in_string = false;
+    bool escaped = false;
+    for (const char ch : command) {
+        if (in_string) {
+            current.push_back(ch);
+            if (escaped) escaped = false;
+            else if (ch == '\\') escaped = true;
+            else if (ch == '"') in_string = false;
+            continue;
+        }
+        if (ch == '"') {
+            in_string = true;
+            current.push_back(ch);
+            continue;
+        }
+        if (ch == ';') {
+            const std::string trimmed = TrimAscii(current);
+            if (!trimmed.empty()) result.push_back(trimmed);
+            current.clear();
+            continue;
+        }
+        current.push_back(ch);
+    }
+    const std::string trimmed = TrimAscii(current);
+    if (!trimmed.empty()) result.push_back(trimmed);
+    return result;
+}
+
+bool ValidateParallelCommand(const std::string& command, std::wstring& error)
+{
+    if (command.find('\n') != std::string::npos || command.find('\r') != std::string::npos) {
+        error = L"命令字符串不能包含换行";
+        return false;
+    }
+
+    static const std::unordered_set<std::string> parallel_commands{
+        "alias", "bind", "say", "say_team", "echoln"
+    };
+    int action_command_count = 0;
+    for (const std::string& part : SplitSourceCommands(command)) {
+        std::istringstream stream(part);
+        std::string name;
+        stream >> name;
+        name = ToLowerAscii(name);
+        if (!name.empty() && parallel_commands.find(name) == parallel_commands.end())
+            ++action_command_count;
+    }
+    if (action_command_count > 1) {
+        error = L"同一动作中只能包含一个普通指令；alias、bind、say、say_team、echoln 可并行";
+        return false;
+    }
+    if (action_command_count == 0 && SplitSourceCommands(command).empty()) {
+        error = L"命令不能为空";
+        return false;
+    }
+    return true;
+}
+
+class parser {
+public:
+    explicit parser(std::string source) : source_(StripComments(source)) {}
+
+    bool Parse(parsed_script& result, std::wstring& error)
+    {
+        bool saw_pressed = false;
+        bool saw_released = false;
+        while (true) {
+            SkipWhitespace();
+            if (AtEnd()) break;
+            if (!Consume('@')) return Fail(L"需要以 @OnPressed 或 @OnReleased 开始", error);
+            const std::string modifier = ParseIdentifier();
+            if (modifier != "OnPressed" && modifier != "OnReleased")
+                return Fail(L"未知修饰符：" + Utf8ToWide(modifier), error);
+            SkipWhitespace();
+            if (!Consume('{')) return Fail(L"修饰符后缺少左花括号", error);
+
+            std::vector<std::pair<std::size_t, std::string>> indexed_commands;
+            while (true) {
+                SkipWhitespace();
+                if (Consume('}')) break;
+                if (AtEnd()) return Fail(L"脚本块缺少右花括号", error);
+
+                std::string command;
+                if (!ParseString(command, error)) return false;
+                SkipWhitespace();
+                if (!Consume(':')) return Fail(L"命令后缺少序号分隔符 ':'", error);
+                SkipWhitespace();
+                const std::optional<std::size_t> index = ParseIndex();
+                if (!index.has_value()) return Fail(L"动作序号必须是从 0 开始的非负整数", error);
+                SkipWhitespace();
+                if (!Consume(';')) {
+                    SkipWhitespace();
+                    if (Peek() != '}') return Fail(L"每条动作必须以分号结束", error);
+                }
+
+                std::wstring validation_error;
+                if (!ValidateParallelCommand(command, validation_error))
+                    return Fail(L"动作 " + std::to_wstring(*index) + L" 非法：" + validation_error, error);
+                indexed_commands.emplace_back(*index, std::move(command));
+            }
+
+            std::sort(indexed_commands.begin(), indexed_commands.end(), [](const auto& left, const auto& right) {
+                return left.first < right.first;
+            });
+            std::vector<std::string> commands;
+            commands.reserve(indexed_commands.size());
+            for (std::size_t i = 0; i < indexed_commands.size(); ++i) {
+                if (indexed_commands[i].first != i)
+                    return Fail(L"动作序号必须从 0 开始且连续，缺少序号 " + std::to_wstring(i), error);
+                commands.push_back(std::move(indexed_commands[i].second));
+            }
+            if (commands.empty()) return Fail(L"@" + Utf8ToWide(modifier) + L" 不能为空", error);
+
+            if (modifier == "OnPressed") {
+                if (saw_pressed) return Fail(L"@OnPressed 只能出现一次", error);
+                saw_pressed = true;
+                result.on_pressed = std::move(commands);
+            } else {
+                if (saw_released) return Fail(L"@OnReleased 只能出现一次", error);
+                saw_released = true;
+                result.on_released = std::move(commands);
+            }
+        }
+        if (!saw_pressed || !saw_released)
+            return Fail(L"脚本必须同时包含 @OnPressed 和 @OnReleased", error);
+        return true;
+    }
+
+private:
+    void SkipWhitespace()
+    {
+        while (!AtEnd() && std::isspace(static_cast<unsigned char>(source_[position_])) != 0) ++position_;
+    }
+
+    bool AtEnd() const { return position_ >= source_.size(); }
+    char Peek() const { return AtEnd() ? '\0' : source_[position_]; }
+
+    bool Consume(char expected)
+    {
+        if (Peek() != expected) return false;
+        ++position_;
+        return true;
+    }
+
+    std::string ParseIdentifier()
+    {
+        const std::size_t start = position_;
+        while (!AtEnd()) {
+            const unsigned char ch = static_cast<unsigned char>(source_[position_]);
+            if (std::isalnum(ch) == 0 && ch != '_') break;
+            ++position_;
+        }
+        return source_.substr(start, position_ - start);
+    }
+
+    std::optional<std::size_t> ParseIndex()
+    {
+        if (AtEnd() || std::isdigit(static_cast<unsigned char>(Peek())) == 0) return std::nullopt;
+        std::size_t value = 0;
+        while (!AtEnd() && std::isdigit(static_cast<unsigned char>(Peek())) != 0) {
+            value = value * 10 + static_cast<std::size_t>(source_[position_] - '0');
+            ++position_;
+            if (value > 100'000) return std::nullopt;
+        }
+        return value;
+    }
+
+    bool ParseString(std::string& result, std::wstring& error)
+    {
+        if (!Consume('"')) return Fail(L"动作命令必须使用双引号包裹", error);
+        bool escaped = false;
+        while (!AtEnd()) {
+            const char ch = source_[position_++];
+            if (escaped) {
+                switch (ch) {
+                case 'n': result.push_back('\n'); break;
+                case 'r': result.push_back('\r'); break;
+                case 't': result.push_back('\t'); break;
+                case '\\': result.push_back('\\'); break;
+                case '"': result.push_back('"'); break;
+                default: result.push_back(ch); break;
+                }
+                escaped = false;
+                continue;
+            }
+            if (ch == '\\') {
+                escaped = true;
+                continue;
+            }
+            if (ch == '"') return true;
+            result.push_back(ch);
+        }
+        return Fail(L"命令字符串缺少结束双引号", error);
+    }
+
+    std::size_t CurrentLine() const
+    {
+        return 1 + static_cast<std::size_t>(std::count(source_.begin(), source_.begin() + position_, '\n'));
+    }
+
+    bool Fail(const std::wstring& message, std::wstring& error) const
+    {
+        error = L"第 " + std::to_wstring(CurrentLine()) + L" 行：" + message;
+        return false;
+    }
+
+    std::string source_;
+    std::size_t position_ = 0;
+};
+
+bool ReadAndParseScript(const std::filesystem::path& path, parsed_script& parsed, std::wstring& error)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input.is_open()) {
+        error = L"无法打开脚本文件";
+        return false;
+    }
+    std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
+        static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF) {
+        text.erase(0, 3);
+    }
+    parsed = {};
+    return parser(std::move(text)).Parse(parsed, error);
+}
+
+void RefreshPublicScriptsLocked()
+{
+    g_public_scripts.clear();
+    g_public_scripts.reserve(g_scripts.size());
+    for (const auto& script : g_scripts) g_public_scripts.push_back(script.public_state);
+}
+
+bool ReloadRecordLocked(script_record& record, std::wstring& error)
+{
+    parsed_script parsed;
+    if (!ReadAndParseScript(record.public_state.path, parsed, error)) {
+        record.parsed = {};
+        record.public_state.valid = false;
+        record.public_state.status = error;
+        record.public_state.pressed_command_count = 0;
+        record.public_state.released_command_count = 0;
+        return false;
+    }
+    record.parsed = std::move(parsed);
+    record.public_state.valid = true;
+    record.public_state.status = L"脚本有效";
+    record.public_state.pressed_command_count = record.parsed.on_pressed.size();
+    record.public_state.released_command_count = record.parsed.on_released.size();
+    return true;
+}
+
+std::filesystem::path ResolveCfgDirectory()
+{
+    const std::wstring saved = strikesense::LoadSavedCfgPath();
+    if (!saved.empty() && std::filesystem::exists(saved)) return std::filesystem::path(saved);
+    const std::wstring steam = strikesense::GetSteamPathFromRegistry();
+    if (steam.empty()) return {};
+    const std::wstring install = strikesense::FindCS2InstallDir(steam);
+    if (install.empty()) return {};
+    return std::filesystem::path(strikesense::GetCS2CfgPath(install));
+}
+
+bool InstallAutoexecBinding(const std::filesystem::path& cfg_directory)
+{
+    std::wstring ticker_source_key;
+    std::vector<std::wstring> unbind_keys;
+    std::vector<std::pair<std::wstring, std::wstring>> custom_binds;
+    {
+        std::lock_guard lock(g_state_mutex);
+        ticker_source_key = g_ticker_source_key;
+        if (!g_previous_ticker_source_key.empty() && g_previous_ticker_source_key != ticker_source_key)
+            unbind_keys.push_back(g_previous_ticker_source_key);
+        for (const std::wstring& pending_key : g_pending_unbind_keys) {
+            if (!pending_key.empty()) unbind_keys.push_back(pending_key);
+        }
+        for (const auto& script : g_scripts) {
+            if (!UsesCustomTrigger(script.public_state)) continue;
+            custom_binds.push_back({
+                script.public_state.trigger_source_key,
+                L"CustomTicker/" + script.public_state.trigger_file_name + L".cfg"
+            });
+        }
+    }
+    const std::filesystem::path autoexec = cfg_directory / L"autoexec.cfg";
+    std::string content;
+    {
+        std::ifstream input(autoexec, std::ios::binary);
+        if (input.is_open()) content.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    }
+
+    const std::size_t block_start = content.find(kManagedBlockStart);
+    if (block_start != std::string::npos) {
+        const std::size_t block_end = content.find(kManagedBlockEnd, block_start);
+        if (block_end != std::string::npos) {
+            std::size_t erase_end = block_end + std::char_traits<char>::length(kManagedBlockEnd);
+            while (erase_end < content.size() && (content[erase_end] == '\r' || content[erase_end] == '\n')) ++erase_end;
+            content.erase(block_start, erase_end - block_start);
+        }
+    }
+    if (!content.empty() && content.back() != '\n') content.push_back('\n');
+    content += kManagedBlockStart;
+    for (const std::wstring& unbind_key : unbind_keys)
+        content += "\nunbind " + WideToUtf8(unbind_key);
+    content += "\nbind " + WideToUtf8(ticker_source_key) + " \"exec StrikeTicker.cfg\"\n";
+    for (const auto& custom_bind : custom_binds) {
+        content += "bind " + WideToUtf8(custom_bind.first)
+            + " \"exec " + WideToUtf8(custom_bind.second) + "\"\n";
+    }
+    content += kManagedBlockEnd;
+    content.push_back('\n');
+
+    std::ofstream output(autoexec, std::ios::binary | std::ios::trunc);
+    if (!output.is_open()) return false;
+    output.write(content.data(), static_cast<std::streamsize>(content.size()));
+    output.flush();
+    return output.good();
+}
+
+bool PrepareTickerFiles()
+{
+    const std::filesystem::path resolved_cfg_directory = ResolveCfgDirectory();
+    if (resolved_cfg_directory.empty() || !std::filesystem::exists(resolved_cfg_directory)) {
+        std::lock_guard lock(g_state_mutex);
+        g_runtime_status = L"未找到 CS2 cfg 目录";
+        std::cout << "[CScript] 未找到 CS2 cfg 目录，无法启动 ticker。" << std::endl;
+        return false;
+    }
+
+    const std::filesystem::path resolved_ticker_path = resolved_cfg_directory / L"StrikeTicker.cfg";
+    const std::filesystem::path resolved_custom_directory = resolved_cfg_directory / L"CustomTicker";
+    {
+        std::ofstream ticker(resolved_ticker_path, std::ios::binary | std::ios::trunc);
+        if (!ticker.is_open()) {
+            std::lock_guard lock(g_state_mutex);
+            g_runtime_status = L"无法创建 StrikeTicker.cfg";
+            std::wcout << L"[CScript] 无法创建 ticker 文件：" << resolved_ticker_path.wstring() << std::endl;
+            return false;
+        }
+    }
+
+    std::error_code directory_error;
+    std::filesystem::create_directories(resolved_custom_directory, directory_error);
+    if (directory_error) {
+        std::lock_guard lock(g_state_mutex);
+        g_runtime_status = L"无法创建 CustomTicker 目录";
+        std::wcout << L"[CScript] 无法创建 CustomTicker 目录：" << resolved_custom_directory.wstring() << std::endl;
+        return false;
+    }
+
+    {
+        std::lock_guard lock(g_state_mutex);
+        for (auto& script : g_scripts) {
+            if (!UsesCustomTrigger(script.public_state)) continue;
+            const std::filesystem::path custom_path = BuildCustomTickerPath(
+                resolved_cfg_directory, script.public_state.trigger_file_name);
+            std::ofstream custom_cfg(custom_path, std::ios::binary | std::ios::trunc);
+            if (!custom_cfg.is_open()) {
+                g_runtime_status = L"无法创建自定义 ticker 文件";
+                std::wcout << L"[CScript] 无法创建自定义 ticker 文件：" << custom_path.wstring() << std::endl;
+                return false;
+            }
+        }
+    }
+
+    const bool resolved_autoexec_ok = InstallAutoexecBinding(resolved_cfg_directory);
+    {
+        std::lock_guard lock(g_state_mutex);
+        g_ticker_cfg_path = resolved_ticker_path;
+        if (resolved_autoexec_ok) {
+            g_previous_ticker_source_key.clear();
+            g_pending_unbind_keys.clear();
+            for (auto& script : g_scripts) script.previous_trigger_source_key.clear();
+        }
+        g_runtime_status = resolved_autoexec_ok
+            ? L"Ticker 已就绪：" + g_ticker_source_key + L" / 64Hz"
+            : L"Ticker 已就绪，但 autoexec.cfg 绑定写入失败";
+    }
+    std::wcout << L"[CScript] StrikeTicker.cfg 已就绪：" << resolved_ticker_path.wstring() << std::endl;
+    std::wcout << (resolved_autoexec_ok
+        ? L"[CScript] 已向 autoexec.cfg 写入 ticker 绑定：" + GetTickerSourceKey()
+        : L"[CScript] autoexec.cfg 写入失败，请手动绑定 ticker 按键。") << std::endl;
+    return true;
+
+    const std::filesystem::path cfg_directory = ResolveCfgDirectory();
+    if (cfg_directory.empty() || !std::filesystem::exists(cfg_directory)) {
+        std::lock_guard lock(g_state_mutex);
+        g_runtime_status = L"未找到 CS2 cfg 目录";
+        std::cout << "[CScript] 未找到 CS2 cfg 目录，无法启动 ticker。" << std::endl;
+        return false;
+    }
+
+    const std::filesystem::path ticker_path = cfg_directory / L"StrikeTicker.cfg";
+    {
+        std::ofstream ticker(ticker_path, std::ios::binary | std::ios::trunc);
+        if (!ticker.is_open()) {
+            std::lock_guard lock(g_state_mutex);
+            g_runtime_status = L"无法创建 StrikeTicker.cfg";
+            std::wcout << L"[CScript] 无法创建 ticker 文件：" << ticker_path.wstring() << std::endl;
+            return false;
+        }
+    }
+
+    const bool autoexec_ok = InstallAutoexecBinding(cfg_directory);
+    {
+        std::lock_guard lock(g_state_mutex);
+        g_ticker_cfg_path = ticker_path;
+        if (autoexec_ok) g_previous_ticker_source_key.clear();
+        g_runtime_status = autoexec_ok
+            ? L"Ticker 已就绪：" + g_ticker_source_key + L" / 64Hz"
+            : L"Ticker 已就绪，但 autoexec.cfg 绑定写入失败";
+    }
+    std::wcout << L"[CScript] StrikeTicker.cfg 已就绪：" << ticker_path.wstring() << std::endl;
+    std::wcout << (autoexec_ok
+        ? L"[CScript] 已向 autoexec.cfg 写入 ticker 绑定：" + GetTickerSourceKey()
+        : L"[CScript] autoexec.cfg 写入失败，请手动绑定 ticker 按键。") << std::endl;
+    return true;
+}
+
+void ClearQueuesLocked()
+{
+    g_lanes.clear();
+    g_ready_lanes.clear();
+    g_physical_down.clear();
+    g_clear_pending = false;
+}
+
+bool HasPendingTickerWorkLocked()
+{
+    return g_clear_pending || !g_ready_lanes.empty();
+}
+
+bool WriteScriptTickerFile(const std::filesystem::path& path, const std::string& content)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output.is_open()) return false;
+    output.write(content.data(), static_cast<std::streamsize>(content.size()));
+    output.flush();
+    return output.good();
+}
+
+std::string BuildTriggeredCommand(const command_sequence& sequence)
+{
+    if (sequence.commands.empty()) return {};
+    std::string output = sequence.commands.front();
+    if (!output.empty() && output.back() != ';') output.push_back(';');
+    output += "echoln \"[cscript]" + sequence.phase + " " + sequence.source_key + " custom trigger!\"\n";
+    return output;
+}
+
+void QueueSequenceLocked(const script_record& script, bool pressed)
+{
+    const auto& commands = pressed ? script.parsed.on_pressed : script.parsed.on_released;
+    if (!script.public_state.valid || script.public_state.source_key.empty() || commands.empty()) return;
+
+    command_sequence sequence;
+    sequence.script_id = script.public_state.id;
+    sequence.phase = pressed ? "pressed" : "released";
+    sequence.source_key = WideToUtf8(script.public_state.source_key);
+    sequence.commands = commands;
+
+    auto& lane = g_lanes[script.public_state.id];
+    lane.sequences.push_back(std::move(sequence));
+    if (!lane.ready) {
+        lane.ready = true;
+        g_ready_lanes.push_back(script.public_state.id);
+    }
+    if constexpr (kVerboseRuntimeLog) {
+        std::wcout << L"[CScript] 已入队：" << script.public_state.source_key
+                   << (pressed ? L" 按下" : L" 松开")
+                   << L"，动作数=" << commands.size() << std::endl;
+    }
+}
+
+void HandlePhysicalKey(UINT virtual_key, bool extended_key, bool pressed)
+{
+    std::vector<custom_trigger_job> custom_jobs;
+    std::filesystem::path cfg_directory;
+    {
+        std::lock_guard lock(g_state_mutex);
+        for (const auto& script : g_scripts) {
+            if (script.public_state.virtual_key != virtual_key ||
+                script.public_state.extended_key != extended_key) continue;
+
+            bool& was_down = g_physical_down[script.public_state.id];
+            if (inputenvironment::ShouldSuppressScriptKey(virtual_key)) {
+                was_down = pressed;
+                continue;
+            }
+            if (pressed) {
+                if (was_down) continue;
+                was_down = true;
+            } else {
+                if (!was_down) continue;
+                was_down = false;
+            }
+
+            if (UsesCustomTrigger(script.public_state)) {
+                const auto& commands = pressed ? script.parsed.on_pressed : script.parsed.on_released;
+                if (commands.empty()) continue;
+                if (cfg_directory.empty()) cfg_directory = ResolveCfgDirectory();
+                if (cfg_directory.empty()) {
+                    g_runtime_status = L"未找到 CS2 cfg 目录";
+                    continue;
+                }
+                command_sequence sequence;
+                sequence.phase = pressed ? "pressed" : "released";
+                sequence.source_key = WideToUtf8(script.public_state.source_key);
+                sequence.commands.push_back(commands.front());
+
+                custom_trigger_job job;
+                job.virtual_key = script.public_state.trigger_virtual_key;
+                job.extended_key = script.public_state.trigger_extended_key;
+                job.cfg_path = BuildCustomTickerPath(cfg_directory, script.public_state.trigger_file_name);
+                job.content = BuildTriggeredCommand(sequence);
+                job.trigger_key_name = script.public_state.trigger_source_key;
+                job.trigger_file_name = script.public_state.trigger_file_name;
+                custom_jobs.push_back(std::move(job));
+                continue;
+            }
+
+            QueueSequenceLocked(script, pressed);
+        }
+        if (HasPendingTickerWorkLocked()) g_worker_cv.notify_one();
+    }
+
+    for (const auto& job : custom_jobs) {
+        if (!WriteScriptTickerFile(job.cfg_path, job.content)) {
+            std::lock_guard lock(g_state_mutex);
+            g_runtime_status = L"写入自定义 ticker 文件失败";
+            std::wcout << L"[CScript] 写入自定义 ticker 文件失败：" << job.cfg_path.wstring() << std::endl;
+            continue;
+        }
+        const WORD scan_code = static_cast<WORD>(MapVirtualKeyW(job.virtual_key, MAPVK_VK_TO_VSC));
+        std::array<INPUT, 2> inputs{};
+        for (auto& input : inputs) {
+            input.type = INPUT_KEYBOARD;
+            input.ki.wVk = static_cast<WORD>(job.virtual_key);
+            input.ki.wScan = scan_code;
+            input.ki.dwFlags = KEYEVENTF_SCANCODE | (job.extended_key ? KEYEVENTF_EXTENDEDKEY : 0);
+        }
+        inputs[1].ki.dwFlags |= KEYEVENTF_KEYUP;
+        const UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+        if (sent != inputs.size()) {
+            std::lock_guard lock(g_state_mutex);
+            g_runtime_status = L"自定义触发按键发送失败";
+            std::wcout << L"[CScript] 自定义触发按键发送失败：" << job.trigger_key_name
+                << L"，错误码=" << GetLastError() << std::endl;
+        }
+    }
+}
+
+void NormalizeLowLevelKey(const KBDLLHOOKSTRUCT& key, UINT& virtual_key, bool& extended_key)
+{
+    virtual_key = key.vkCode;
+    extended_key = (key.flags & LLKHF_EXTENDED) != 0;
+    if (virtual_key == VK_CONTROL)
+        virtual_key = extended_key ? VK_RCONTROL : VK_LCONTROL;
+    else if (virtual_key == VK_MENU)
+        virtual_key = extended_key ? VK_RMENU : VK_LMENU;
+    else if (virtual_key == VK_SHIFT) {
+        const UINT mapped = MapVirtualKeyW(key.scanCode, MAPVK_VSC_TO_VK_EX);
+        virtual_key = mapped == VK_RSHIFT ? VK_RSHIFT : VK_LSHIFT;
+        extended_key = false;
+    }
+}
+
+LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM w_param, LPARAM l_param)
+{
+    if (code == HC_ACTION && g_enabled.load() && IsRageModeEnabled()) {
+        const auto* key = reinterpret_cast<const KBDLLHOOKSTRUCT*>(l_param);
+        if (key && (key->flags & LLKHF_INJECTED) == 0 && IsCS2WindowActive()) {
+            const bool pressed = w_param == WM_KEYDOWN || w_param == WM_SYSKEYDOWN;
+            const bool released = w_param == WM_KEYUP || w_param == WM_SYSKEYUP;
+            if (pressed || released) {
+                UINT virtual_key = 0;
+                bool extended_key = false;
+                NormalizeLowLevelKey(*key, virtual_key, extended_key);
+                HandlePhysicalKey(virtual_key, extended_key, pressed);
+            }
+        }
+    }
+    return CallNextHookEx(nullptr, code, w_param, l_param);
+}
+
+void KeyboardHookThreadMain()
+{
+    g_keyboard_hook_thread_id = GetCurrentThreadId();
+    MSG message{};
+    PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
+    g_keyboard_hook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc,
+        GetModuleHandleW(nullptr), 0);
+    {
+        std::lock_guard ready_lock(g_hook_ready_mutex);
+        g_hook_install_succeeded = g_keyboard_hook != nullptr;
+        g_hook_ready = true;
+    }
+    g_hook_ready_cv.notify_one();
+
+    if (g_keyboard_hook) {
+        while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        UnhookWindowsHookEx(g_keyboard_hook);
+        g_keyboard_hook = nullptr;
+    }
+    g_keyboard_hook_thread_id = 0;
+}
+
+bool StartKeyboardHook()
+{
+    std::lock_guard lifecycle_lock(g_hook_lifecycle_mutex);
+    if (g_keyboard_hook) return true;
+    if (g_keyboard_hook_thread.joinable()) g_keyboard_hook_thread.join();
+    {
+        std::lock_guard ready_lock(g_hook_ready_mutex);
+        g_hook_ready = false;
+        g_hook_install_succeeded = false;
+    }
+    g_keyboard_hook_thread = std::thread(KeyboardHookThreadMain);
+    {
+        std::unique_lock ready_lock(g_hook_ready_mutex);
+        g_hook_ready_cv.wait(ready_lock, [] { return g_hook_ready; });
+    }
+    if (!g_hook_install_succeeded && g_keyboard_hook_thread.joinable())
+        g_keyboard_hook_thread.join();
+    return g_hook_install_succeeded;
+}
+
+void StopKeyboardHook()
+{
+    std::lock_guard lifecycle_lock(g_hook_lifecycle_mutex);
+    if (g_keyboard_hook_thread_id != 0)
+        PostThreadMessageW(g_keyboard_hook_thread_id, WM_QUIT, 0, 0);
+    if (g_keyboard_hook_thread.joinable()) g_keyboard_hook_thread.join();
+}
+
+void SendTickerKey()
+{
+    UINT ticker_virtual_key = kDefaultTickerVirtualKey;
+    bool ticker_extended_key = false;
+    std::wstring ticker_source_key;
+    {
+        std::lock_guard lock(g_state_mutex);
+        ticker_virtual_key = g_ticker_virtual_key;
+        ticker_extended_key = g_ticker_extended_key;
+        ticker_source_key = g_ticker_source_key;
+    }
+    const WORD scan_code = static_cast<WORD>(MapVirtualKeyW(ticker_virtual_key, MAPVK_VK_TO_VSC));
+    std::array<INPUT, 2> inputs{};
+    for (auto& input : inputs) {
+        input.type = INPUT_KEYBOARD;
+        input.ki.wVk = static_cast<WORD>(ticker_virtual_key);
+        input.ki.wScan = scan_code;
+        input.ki.dwFlags = KEYEVENTF_SCANCODE | (ticker_extended_key ? KEYEVENTF_EXTENDEDKEY : 0);
+    }
+    inputs[1].ki.dwFlags |= KEYEVENTF_KEYUP;
+    const UINT sent = SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+    if (sent != inputs.size())
+        std::wcout << L"[CScript] " << ticker_source_key
+                   << L" SendInput 未完整发送，错误码=" << GetLastError() << std::endl;
+}
+
+bool WriteTickerFile(const std::string& content)
+{
+    std::filesystem::path path;
+    {
+        std::lock_guard lock(g_state_mutex);
+        path = g_ticker_cfg_path;
+    }
+    if (path.empty()) return false;
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output.is_open()) return false;
+    output.write(content.data(), static_cast<std::streamsize>(content.size()));
+    output.flush();
+    return output.good();
+}
+
+std::optional<std::string> TakeNextTickerCommand()
+{
+    std::lock_guard lock(g_state_mutex);
+    if (g_clear_pending) {
+        g_clear_pending = false;
+        return std::string{};
+    }
+
+    while (!g_ready_lanes.empty()) {
+        const std::uint64_t script_id = g_ready_lanes.front();
+        g_ready_lanes.pop_front();
+        auto lane_it = g_lanes.find(script_id);
+        if (lane_it == g_lanes.end() || lane_it->second.sequences.empty()) continue;
+
+        script_lane& lane = lane_it->second;
+        command_sequence& sequence = lane.sequences.front();
+        const std::size_t command_index = sequence.next_command;
+        const bool final_command = command_index + 1 >= sequence.commands.size();
+        std::string output = sequence.commands[command_index];
+        if (!output.empty() && output.back() != ';') output.push_back(';');
+        output += "echoln \"[cscript]" + sequence.phase + " " + sequence.source_key
+            + " has been executed " + std::to_string(command_index);
+        if (final_command) output.push_back('!');
+        output += "\"\n";
+
+        ++sequence.next_command;
+        if (final_command) lane.sequences.pop_front();
+        if (!lane.sequences.empty()) {
+            g_ready_lanes.push_back(script_id);
+        } else {
+            lane.ready = false;
+            g_lanes.erase(lane_it);
+        }
+        g_clear_pending = final_command;
+        return output;
+    }
+    return std::nullopt;
+}
+
+void WorkerLoop()
+{
+    std::cout << "[CScript] 64Hz ticker 线程已启动。" << std::endl;
+    auto next_tick = clock_type::now();
+    bool was_game_active = false;
+    while (g_worker_running.load()) {
+        next_tick += kTickerInterval;
+        const bool game_active = g_enabled.load() && IsRageModeEnabled() && IsCS2WindowActive();
+        if (!game_active && was_game_active) {
+            {
+                std::lock_guard lock(g_state_mutex);
+                ClearQueuesLocked();
+            }
+            WriteTickerFile("");
+            std::cout << "[CScript] CS2 不再位于前台，已清空输入状态与待执行队列。" << std::endl;
+        }
+        was_game_active = game_active;
+        if (game_active && !inputenvironment::ShouldPauseAutomation()) {
+            if (g_performance_mode) {
+                bool has_pending_work = false;
+                {
+                    std::lock_guard lock(g_state_mutex);
+                    has_pending_work = HasPendingTickerWorkLocked();
+                }
+                if (!has_pending_work) goto cscript_worker_wait;
+            }
+            const std::optional<std::string> command = TakeNextTickerCommand();
+            if (command.has_value()) {
+                if (!WriteTickerFile(*command)) {
+                    std::cout << "[CScript] StrikeTicker.cfg 写入失败。" << std::endl;
+                    std::lock_guard lock(g_state_mutex);
+                    g_runtime_status = L"StrikeTicker.cfg 写入失败";
+                }
+            }
+            SendTickerKey();
+        }
+
+cscript_worker_wait:
+        std::unique_lock lock(g_state_mutex);
+        g_worker_cv.wait_until(lock, next_tick, [] { return !g_worker_running.load(); });
+        const auto now = clock_type::now();
+        if (next_tick + std::chrono::milliseconds(100) < now) next_tick = now;
+    }
+    std::cout << "[CScript] 64Hz ticker 线程已退出。" << std::endl;
+}
+
+bool StartRuntime()
+{
+    if (!PrepareTickerFiles()) return false;
+    if (!StartKeyboardHook()) {
+        std::cout << "[CScript] 键盘钩子安装失败。" << std::endl;
+        std::lock_guard lock(g_state_mutex);
+        g_runtime_status = L"键盘钩子安装失败";
+        return false;
+    }
+    std::cout << "[CScript] 全局键盘钩子已安装到独立输入线程。" << std::endl;
+    if (!g_worker_running.exchange(true)) g_worker = std::thread(WorkerLoop);
+    consolelog::SetCscriptReaderNeeded(true);
+    return true;
+}
+
+void StopRuntime()
+{
+    consolelog::SetCscriptReaderNeeded(false);
+    StopKeyboardHook();
+    std::cout << "[CScript] 全局键盘钩子已卸载。" << std::endl;
+    if (g_worker_running.exchange(false)) {
+        g_worker_cv.notify_all();
+        if (g_worker.joinable()) g_worker.join();
+    }
+    {
+        std::lock_guard lock(g_state_mutex);
+        ClearQueuesLocked();
+    }
+    if (!g_ticker_cfg_path.empty()) WriteTickerFile("");
+}
+
+} // namespace
+
+void LoadConfig()
+{
+    config::EnsureDirectoriesExist();
+    EnsureDefaultScripts();
+    std::lock_guard lock(g_state_mutex);
+    g_scripts.clear();
+    g_next_script_id = 1;
+    g_ticker_virtual_key = kDefaultTickerVirtualKey;
+    g_ticker_extended_key = false;
+    g_ticker_source_key = L"]";
+    g_previous_ticker_source_key.clear();
+    g_performance_mode = false;
+    g_pending_unbind_keys.clear();
+
+    const std::filesystem::path path = ConfigPath();
+    if (!std::filesystem::exists(path)) {
+        RefreshPublicScriptsLocked();
+        g_enabled.store(false);
+        std::cout << "[CScript] 配置不存在，使用默认配置。" << std::endl;
+        return;
+    }
+    try {
+        std::ifstream input(path);
+        nlohmann::json json;
+        input >> json;
+        if (json.contains("enabled") && json["enabled"].is_boolean())
+            g_enabled.store(json["enabled"].get<bool>());
+        g_performance_mode = json.value("performance_mode", false);
+        g_ticker_virtual_key = json.value("ticker_virtual_key", static_cast<UINT>(kDefaultTickerVirtualKey));
+        g_ticker_extended_key = json.value("ticker_extended_key", false);
+        g_ticker_source_key = VirtualKeyToSourceName(g_ticker_virtual_key, g_ticker_extended_key);
+        if (g_ticker_source_key.empty()) {
+            g_ticker_virtual_key = kDefaultTickerVirtualKey;
+            g_ticker_extended_key = false;
+            g_ticker_source_key = L"]";
+        }
+        if (json.contains("scripts") && json["scripts"].is_array()) {
+            for (const auto& item : json["scripts"]) {
+                if (!item.contains("path") || !item["path"].is_string()) continue;
+                script_record record;
+                record.public_state.id = item.value("id", g_next_script_id++);
+                record.public_state.path = Utf8ToWide(item["path"].get<std::string>());
+                record.public_state.virtual_key = item.value("virtual_key", 0u);
+                record.public_state.extended_key = item.value("extended_key", false);
+                record.public_state.source_key = VirtualKeyToSourceName(
+                    record.public_state.virtual_key, record.public_state.extended_key);
+                record.public_state.trigger_virtual_key = item.value("trigger_virtual_key", 0u);
+                record.public_state.trigger_extended_key = item.value("trigger_extended_key", false);
+                record.public_state.trigger_source_key = VirtualKeyToSourceName(
+                    record.public_state.trigger_virtual_key, record.public_state.trigger_extended_key);
+                record.public_state.trigger_file_name = NormalizeTriggerFileName(
+                    Utf8ToWide(item.value("trigger_file_name", std::string{})));
+                record.previous_trigger_source_key = Utf8ToWide(item.value("previous_trigger_source_key", std::string{}));
+                std::wstring parse_error;
+                ReloadRecordLocked(record, parse_error);
+                g_next_script_id = (std::max)(g_next_script_id, record.public_state.id + 1);
+                g_scripts.push_back(std::move(record));
+            }
+        }
+        RefreshPublicScriptsLocked();
+        std::cout << "[CScript] 已加载脚本数量：" << g_scripts.size() << std::endl;
+    } catch (const std::exception& exception) {
+        g_enabled.store(false);
+        g_scripts.clear();
+        RefreshPublicScriptsLocked();
+        std::cout << "[CScript] 配置加载失败：" << exception.what() << std::endl;
+    }
+}
+
+void SaveConfig()
+{
+    config::EnsureDirectoriesExist();
+    nlohmann::json json;
+    json["enabled"] = g_enabled.load();
+    json["performance_mode"] = g_performance_mode;
+    json["ticker_hz"] = kTickerHz;
+    json["scripts"] = nlohmann::json::array();
+    {
+        std::lock_guard lock(g_state_mutex);
+        json["ticker_key"] = WideToUtf8(g_ticker_source_key);
+        json["ticker_virtual_key"] = g_ticker_virtual_key;
+        json["ticker_extended_key"] = g_ticker_extended_key;
+        for (const auto& script : g_scripts) {
+            json["scripts"].push_back({
+                {"id", script.public_state.id},
+                {"path", WideToUtf8(script.public_state.path)},
+                {"virtual_key", script.public_state.virtual_key},
+                {"extended_key", script.public_state.extended_key},
+                {"trigger_virtual_key", script.public_state.trigger_virtual_key},
+                {"trigger_extended_key", script.public_state.trigger_extended_key},
+                {"trigger_file_name", WideToUtf8(script.public_state.trigger_file_name)},
+                {"previous_trigger_source_key", WideToUtf8(script.previous_trigger_source_key)}
+            });
+        }
+    }
+    std::ofstream output(ConfigPath());
+    if (output.is_open()) {
+        output << json.dump(2);
+        std::cout << "[CScript] 配置已保存。" << std::endl;
+    } else {
+        std::cout << "[CScript] 配置保存失败。" << std::endl;
+    }
+}
+
+bool SetEnabled(bool enabled)
+{
+    if (enabled && !IsRageModeEnabled()) {
+        std::cout << "[CScript] 超频配置未开启，拒绝启动 ticker。" << std::endl;
+        return false;
+    }
+    if (enabled) {
+        if (g_enabled.load() && g_worker_running.load() && g_keyboard_hook) return true;
+        if (!StartRuntime()) {
+            g_enabled.store(false);
+            SaveConfig();
+            return false;
+        }
+        g_enabled.store(true);
+    } else {
+        g_enabled.store(false);
+        StopRuntime();
+    }
+    SaveConfig();
+    std::cout << "[CScript] 多绑定脚本支持已切换为：" << (enabled ? "开启" : "关闭") << std::endl;
+    return g_enabled.load() == enabled;
+}
+
+bool IsEnabled()
+{
+    return g_enabled.load();
+}
+
+void StopForRageDisabled()
+{
+    StopRuntime();
+    std::cout << "[CScript] 超频配置关闭，ticker 已停止，但保留开关偏好。" << std::endl;
+}
+
+void Shutdown()
+{
+    StopRuntime();
+}
+
+const std::vector<mounted_script>& MountedScripts()
+{
+    return g_public_scripts;
+}
+
+bool AddMountedScript(const std::filesystem::path& path, std::wstring* error)
+{
+    std::wstring extension = path.extension().wstring();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    if (extension != L".cscript") {
+        if (error) *error = L"仅支持 .cscript 文件";
+        return false;
+    }
+    std::wstring parse_error;
+    bool added = false;
+    {
+        std::lock_guard lock(g_state_mutex);
+        const auto existing = std::find_if(g_scripts.begin(), g_scripts.end(), [&](const script_record& script) {
+            return std::filesystem::path(script.public_state.path) == path;
+        });
+        if (existing != g_scripts.end()) {
+            const bool valid = ReloadRecordLocked(*existing, parse_error);
+            RefreshPublicScriptsLocked();
+            if (error) *error = valid ? L"" : parse_error;
+            return valid;
+        }
+        script_record record;
+        record.public_state.id = g_next_script_id++;
+        record.public_state.path = path.wstring();
+        const bool valid = ReloadRecordLocked(record, parse_error);
+        g_scripts.push_back(std::move(record));
+        RefreshPublicScriptsLocked();
+        added = true;
+        if (!valid && error) *error = parse_error;
+    }
+    if (added) SaveConfig();
+    std::wcout << L"[CScript] 已挂载脚本：" << path.wstring() << std::endl;
+    return parse_error.empty();
+}
+
+void RemoveMountedScript(std::size_t index)
+{
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (index >= g_scripts.size()) return;
+        const std::uint64_t id = g_scripts[index].public_state.id;
+        if (!g_scripts[index].public_state.trigger_source_key.empty())
+            g_pending_unbind_keys.push_back(g_scripts[index].public_state.trigger_source_key);
+        if (!g_scripts[index].previous_trigger_source_key.empty())
+            g_pending_unbind_keys.push_back(g_scripts[index].previous_trigger_source_key);
+        g_scripts.erase(g_scripts.begin() + static_cast<std::ptrdiff_t>(index));
+        g_lanes.erase(id);
+        g_physical_down.erase(id);
+        g_ready_lanes.erase(std::remove(g_ready_lanes.begin(), g_ready_lanes.end(), id), g_ready_lanes.end());
+        RefreshPublicScriptsLocked();
+    }
+    SaveConfig();
+    std::cout << "[CScript] 已卸载脚本。" << std::endl;
+}
+
+bool ReloadMountedScript(std::size_t index, std::wstring* error)
+{
+    bool valid = false;
+    std::wstring parse_error;
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (index >= g_scripts.size()) {
+            if (error) *error = L"脚本索引无效";
+            return false;
+        }
+        valid = ReloadRecordLocked(g_scripts[index], parse_error);
+        RefreshPublicScriptsLocked();
+    }
+    if (error) *error = parse_error;
+    std::cout << "[CScript] 脚本重载结果：" << (valid ? "成功" : "失败") << std::endl;
+    return valid;
+}
+
+bool SetScriptKey(std::size_t index, UINT virtual_key, bool extended_key, std::wstring* error)
+{
+    const std::wstring source_name = VirtualKeyToSourceName(virtual_key, extended_key);
+    if (source_name.empty()) {
+        if (error) *error = L"该按键无法映射为起源引擎按键名";
+        return false;
+    }
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (source_name == g_ticker_source_key) {
+            if (error) *error = g_ticker_source_key + L" 已被 64Hz ticker 保留，请选择其他按键";
+            return false;
+        }
+        if (index >= g_scripts.size()) {
+            if (error) *error = L"脚本索引无效";
+            return false;
+        }
+        g_scripts[index].public_state.virtual_key = virtual_key;
+        g_scripts[index].public_state.extended_key = extended_key;
+        g_scripts[index].public_state.source_key = source_name;
+        RefreshPublicScriptsLocked();
+    }
+    SaveConfig();
+    std::wcout << L"[CScript] 脚本按键已绑定为：" << source_name << std::endl;
+    return true;
+}
+
+bool ClearScriptKey(std::size_t index, std::wstring* error)
+{
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (index >= g_scripts.size()) {
+            if (error) *error = L"脚本索引无效";
+            return false;
+        }
+        auto& script = g_scripts[index];
+        script.public_state.virtual_key = 0;
+        script.public_state.extended_key = false;
+        script.public_state.source_key.clear();
+        RefreshPublicScriptsLocked();
+    }
+    SaveConfig();
+    return true;
+}
+
+bool SetScriptTriggerKey(std::size_t index, UINT virtual_key, bool extended_key, std::wstring* error)
+{
+    const std::wstring source_name = VirtualKeyToSourceName(virtual_key, extended_key);
+    if (source_name.empty()) {
+        if (error) *error = L"该按键无法映射为 Source 按键名";
+        return false;
+    }
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (source_name == g_ticker_source_key) {
+            if (error) *error = g_ticker_source_key + L" 已被 64Hz ticker 保留，请选择其他按键";
+            return false;
+        }
+        if (index >= g_scripts.size()) {
+            if (error) *error = L"脚本索引无效";
+            return false;
+        }
+        for (std::size_t i = 0; i < g_scripts.size(); ++i) {
+            if (i == index) continue;
+            if (g_scripts[i].public_state.trigger_source_key == source_name) {
+                if (error) *error = L"该按键已经被其他脚本的自定义触发键占用";
+                return false;
+            }
+        }
+        auto& script = g_scripts[index];
+        if (script.public_state.trigger_file_name.empty()) {
+            if (error) *error = L"请先填写触发文件名，再设置自定义触发键";
+            return false;
+        }
+        if (!script.public_state.trigger_source_key.empty() &&
+            script.public_state.trigger_source_key != source_name) {
+            script.previous_trigger_source_key = script.public_state.trigger_source_key;
+            g_pending_unbind_keys.push_back(script.public_state.trigger_source_key);
+        }
+        script.public_state.trigger_virtual_key = virtual_key;
+        script.public_state.trigger_extended_key = extended_key;
+        script.public_state.trigger_source_key = source_name;
+        RefreshPublicScriptsLocked();
+    }
+    SaveConfig();
+    if (g_enabled.load()) PrepareTickerFiles();
+    return true;
+}
+
+bool ClearScriptTriggerKey(std::size_t index, std::wstring* error)
+{
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (index >= g_scripts.size()) {
+            if (error) *error = L"脚本索引无效";
+            return false;
+        }
+        auto& script = g_scripts[index];
+        if (!script.public_state.trigger_source_key.empty()) {
+            script.previous_trigger_source_key = script.public_state.trigger_source_key;
+            g_pending_unbind_keys.push_back(script.public_state.trigger_source_key);
+        }
+        script.public_state.trigger_virtual_key = 0;
+        script.public_state.trigger_extended_key = false;
+        script.public_state.trigger_source_key.clear();
+        script.public_state.trigger_file_name.clear();
+        RefreshPublicScriptsLocked();
+    }
+    SaveConfig();
+    if (g_enabled.load()) PrepareTickerFiles();
+    return true;
+}
+
+bool SetScriptTriggerFileName(std::size_t index, const std::wstring& file_name, std::wstring* error)
+{
+    const std::wstring normalized = NormalizeTriggerFileName(file_name);
+    if (!IsTriggerFileNameValid(normalized)) {
+        if (error) *error = L"文件名不能包含路径分隔符或 Windows 非法字符";
+        return false;
+    }
+    {
+        std::lock_guard lock(g_state_mutex);
+        if (index >= g_scripts.size()) {
+            if (error) *error = L"脚本索引无效";
+            return false;
+        }
+        for (std::size_t i = 0; i < g_scripts.size(); ++i) {
+            if (i == index || normalized.empty()) continue;
+            if (_wcsicmp(g_scripts[i].public_state.trigger_file_name.c_str(), normalized.c_str()) == 0) {
+                if (error) *error = L"该触发文件名已经被其他脚本占用";
+                return false;
+            }
+        }
+        auto& script = g_scripts[index];
+        if (normalized.empty()) {
+            if (!script.public_state.trigger_source_key.empty()) {
+                script.previous_trigger_source_key = script.public_state.trigger_source_key;
+                g_pending_unbind_keys.push_back(script.public_state.trigger_source_key);
+            }
+            script.public_state.trigger_virtual_key = 0;
+            script.public_state.trigger_extended_key = false;
+            script.public_state.trigger_source_key.clear();
+            script.public_state.trigger_file_name.clear();
+        } else {
+            script.public_state.trigger_file_name = normalized;
+        }
+        RefreshPublicScriptsLocked();
+    }
+    SaveConfig();
+    if (g_enabled.load()) PrepareTickerFiles();
+    return true;
+}
+
+bool SetTickerKey(UINT virtual_key, bool extended_key, std::wstring* error)
+{
+    const std::wstring source_name = VirtualKeyToSourceName(virtual_key, extended_key);
+    if (source_name.empty()) {
+        if (error) *error = L"该按键无法映射为起源引擎按键名";
+        return false;
+    }
+    {
+        std::lock_guard lock(g_state_mutex);
+        const auto conflict = std::find_if(g_scripts.begin(), g_scripts.end(), [&](const script_record& script) {
+            return script.public_state.source_key == source_name;
+        });
+        if (conflict != g_scripts.end()) {
+            if (error) *error = L"该按键已经绑定给脚本：" + conflict->public_state.path;
+            return false;
+        }
+        g_ticker_virtual_key = virtual_key;
+        g_ticker_extended_key = extended_key;
+        g_previous_ticker_source_key = g_ticker_source_key;
+        g_ticker_source_key = source_name;
+        g_runtime_status = L"Ticker 按键已改为：" + source_name;
+    }
+    SaveConfig();
+    if (g_enabled.load() && !PrepareTickerFiles()) {
+        if (error) *error = GetLastRuntimeStatus();
+        return false;
+    }
+    std::wcout << L"[CScript] 64Hz ticker 按键已修改为：" << source_name << std::endl;
+    return true;
+}
+
+bool SetPerformanceMode(bool enabled)
+{
+    {
+        std::lock_guard lock(g_state_mutex);
+        g_performance_mode = enabled;
+        g_runtime_status = enabled ? L"已开启性能优化" : L"已关闭性能优化";
+    }
+    SaveConfig();
+    g_worker_cv.notify_one();
+    return true;
+}
+
+bool IsPerformanceMode()
+{
+    std::lock_guard lock(g_state_mutex);
+    return g_performance_mode;
+}
+
+std::wstring GetTickerSourceKey()
+{
+    std::lock_guard lock(g_state_mutex);
+    return g_ticker_source_key;
+}
+
+std::wstring GetDefaultScriptDir()
+{
+    return (BaseDirectory() / L"sourcecfg").wstring();
+}
+
+std::wstring GetTickerCfgPath()
+{
+    std::lock_guard lock(g_state_mutex);
+    return g_ticker_cfg_path.wstring();
+}
+
+std::wstring GetLastRuntimeStatus()
+{
+    std::lock_guard lock(g_state_mutex);
+    return g_runtime_status;
+}
+
+void ProcessConsoleLine(const std::wstring& line)
+{
+    const std::size_t marker = line.find(L"[cscript]");
+    if (marker == std::wstring::npos) return;
+    const std::wstring acknowledgement = line.substr(marker);
+    {
+        std::lock_guard lock(g_state_mutex);
+        g_runtime_status = L"最近确认：" + acknowledgement;
+    }
+    if constexpr (kVerboseRuntimeLog)
+        std::wcout << L"[CScript] 已从 console.log 收到执行确认：" << acknowledgement << std::endl;
+}
+
+std::wstring VirtualKeyToSourceName(UINT virtual_key, bool extended_key)
+{
+    (void)extended_key;
+    if (virtual_key >= 'A' && virtual_key <= 'Z')
+        return std::wstring(1, static_cast<wchar_t>(L'a' + virtual_key - 'A'));
+    if (virtual_key >= '0' && virtual_key <= '9')
+        return std::wstring(1, static_cast<wchar_t>(L'0' + virtual_key - '0'));
+    if (virtual_key >= VK_NUMPAD0 && virtual_key <= VK_NUMPAD9)
+        return L"kp_" + std::to_wstring(virtual_key - VK_NUMPAD0);
+    if (virtual_key >= VK_F1 && virtual_key <= VK_F12)
+        return L"f" + std::to_wstring(virtual_key - VK_F1 + 1);
+
+    switch (virtual_key) {
+    case VK_LCONTROL: return L"ctrl";
+    case VK_RCONTROL: return L"rctrl";
+    case VK_LSHIFT: return L"shift";
+    case VK_RSHIFT: return L"rshift";
+    case VK_LMENU: return L"alt";
+    case VK_RMENU: return L"ralt";
+    case VK_CAPITAL: return L"capslock";
+    case VK_TAB: return L"tab";
+    case VK_SPACE: return L"space";
+    case VK_RETURN: return L"enter";
+    case VK_BACK: return L"backspace";
+    case VK_ESCAPE: return L"escape";
+    case VK_INSERT: return L"ins";
+    case VK_DELETE: return L"del";
+    case VK_HOME: return L"home";
+    case VK_END: return L"end";
+    case VK_PRIOR: return L"pgup";
+    case VK_NEXT: return L"pgdn";
+    case VK_UP: return L"uparrow";
+    case VK_DOWN: return L"downarrow";
+    case VK_LEFT: return L"leftarrow";
+    case VK_RIGHT: return L"rightarrow";
+    case VK_OEM_MINUS: return L"-";
+    case VK_OEM_PLUS: return L"=";
+    case VK_OEM_6: return L"]";
+    case VK_ADD: return L"kp_plus";
+    case VK_SUBTRACT: return L"kp_minus";
+    case VK_MULTIPLY: return L"kp_multiply";
+    case VK_DIVIDE: return L"kp_slash";
+    case VK_DECIMAL: return L"kp_del";
+    default: return L"";
+    }
+}
+
+bool NormalizeWindowKey(WPARAM w_param, LPARAM l_param, UINT& virtual_key, bool& extended_key)
+{
+    virtual_key = static_cast<UINT>(w_param);
+    extended_key = (static_cast<std::uint64_t>(l_param) & (1ull << 24)) != 0;
+    const UINT scan_code = (static_cast<UINT>(l_param) >> 16) & 0xFFu;
+    if (virtual_key == VK_CONTROL)
+        virtual_key = extended_key ? VK_RCONTROL : VK_LCONTROL;
+    else if (virtual_key == VK_MENU)
+        virtual_key = extended_key ? VK_RMENU : VK_LMENU;
+    else if (virtual_key == VK_SHIFT) {
+        virtual_key = MapVirtualKeyW(scan_code, MAPVK_VSC_TO_VK_EX) == VK_RSHIFT ? VK_RSHIFT : VK_LSHIFT;
+        extended_key = false;
+    }
+    return !VirtualKeyToSourceName(virtual_key, extended_key).empty();
+}
+
+} // namespace cscript
