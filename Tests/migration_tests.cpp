@@ -19,7 +19,7 @@ int main() {
         if (r.success) { check(read(root / L"中文文件.txt") == "content", "file link unreadable"); fs::remove(root / L"中文文件.txt"); }
         else check(read(root / L"中文文件.txt") == "content", "failed file move lost source");
         write(root / "tree" / "nested" / "a.bin", std::string(2300000, 'x')); fs::create_directories(root / "tree" / "empty");
-        r = run(root / "tree", true); check(r.success, "verified directory copy failed");
+        r = run(root / "tree", true); if (!r.success) std::cerr << fs::path(r.message).u8string() << '\n'; check(r.success, "verified directory copy failed");
         check(read(root / "tree" / "nested" / "a.bin") == std::string(2300000, 'x'), "copy bytes differ"); check(fs::is_directory(root / "tree" / "empty"), "empty directory lost");
         check(rejects(root / "tree", root / "dest"), "reparse source accepted");
         // Remove only the junction itself before recursively cleaning the test sandbox.
@@ -37,6 +37,12 @@ int main() {
         check(!r.success && fs::exists(root / "changed" / "new"), "source modification was ignored");
         write(root / "locked" / "a"); HANDLE lock = CreateFileW((root / "locked" / "a").c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
         r = run(root / "locked", true); CloseHandle(lock); check(!r.success && fs::exists(root / "locked" / "a"), "locked source was lost");
+        write(root / "race" / "a");
+        r = aelura::migration::execute(aelura::migration::inspect(root / "race", root / "dest"), [&](auto, auto) { write(root / "dest" / "race" / "other", "keep"); return true; });
+        check(!r.success && read(root / "dest" / "race" / "other") == "keep" && fs::exists(root / "race" / "a"), "concurrent destination overwritten");
+        write(root / "copyrace" / "a");
+        r = aelura::migration::execute(aelura::migration::inspect(root / "copyrace", root / "dest"), [&](auto done, auto) { if (done) write(root / "dest" / "copyrace" / "other", "keep"); return true; }, true);
+        check(!r.success && read(root / "dest" / "copyrace" / "other") == "keep" && fs::exists(root / "copyrace" / "a"), "copy commit rollback failed");
         check(aelura::catalog::matches(L"文件管理 FreeMove", L"文件 freemove"), "search not case insensitive");
         HWND window = CreateWindowExW(0, L"STATIC", L"test", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
         aelura::hotkeys::Manager manager; manager.load(window, root / "keys.ini"); std::wstring error;

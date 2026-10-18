@@ -31,7 +31,7 @@ void Manager::load(HWND hwnd, std::filesystem::path path) {
             b.key = read(L"Key", GetPrivateProfileIntW(L"Capture", L"Key", b.key, config.c_str()));
             b.enabled = read(L"Enabled", GetPrivateProfileIntW(L"Capture", L"Enabled", b.enabled, config.c_str())) != 0;
         }
-        if (b.id == L"print") b.enabled = read(L"Enabled", GetPrivateProfileIntW(L"Capture", L"PrintScreen", 0, config.c_str())) != 0;
+        if (b.id == L"print") b.enabled = read(L"Enabled", GetPrivateProfileIntW(L"Capture", L"Enabled", 1, config.c_str()) && GetPrivateProfileIntW(L"Capture", L"PrintScreen", 0, config.c_str())) != 0;
         if (valid(b.modifiers, b.key, b.id == L"print") && b.enabled) b.registered = RegisterHotKey(window, b.slot, b.modifiers | MOD_NOREPEAT, b.key) != 0;
     }
 }

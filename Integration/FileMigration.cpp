@@ -19,6 +19,22 @@ bool inside(fs::path const& child, fs::path const& parent) {
 }
 void require(bool ok, char const* message) { if (!ok) throw std::runtime_error(message); }
 bool present(fs::path const& path) { return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; }
+void move(fs::path const& from, fs::path const& to, std::error_code& ec) {
+    if (MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_WRITE_THROUGH)) ec.clear();
+    else ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+}
+void move(fs::path const& from, fs::path const& to) {
+    std::error_code ec; move(from, to, ec); if (ec) throw fs::filesystem_error("无法移动路径", from, to, ec);
+}
+struct ReadLocks {
+    std::vector<HANDLE> handles;
+    void clear() { for (auto h : handles) CloseHandle(h); handles.clear(); }
+    ~ReadLocks() { clear(); }
+    void add(fs::path const& p) {
+        HANDLE h = CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        require(h != INVALID_HANDLE_VALUE, "文件正在被修改或无法读取，请关闭使用它的程序后重试。"); handles.push_back(h);
+    }
+};
 void plain(fs::path const& p) {
     const auto attrs = GetFileAttributesW(p.c_str());
     require(attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_REPARSE_POINT), "路径包含链接或重解析点，请选择实际文件位置。");
@@ -103,6 +119,7 @@ Result execute(Plan const& requested, Progress const& progress, bool copyAlways)
         p = inspect(requested.source, requested.destination.parent_path());
         require(p.destination == requested.destination, "目标位置已变化，请重新预检。");
         auto entries = inventory(p.source);
+        ReadLocks locks;
         backup = unique(p.source.parent_path(), L".aelura-backup-"); stage = unique(p.destination.parent_path(), L".aelura-copy-");
         recovery = unique(p.source.parent_path(), L".aelura-recovery-"); recovery += L".txt";
         auto probe = unique(p.source.parent_path(), L".aelura-link-");
@@ -111,8 +128,9 @@ Result execute(Plan const& requested, Progress const& progress, bool copyAlways)
         journal(recovery, p, backup, stage);
         require(progress(0, p.bytes), "已取消迁移，原文件保持完整。");
         if (p.sameVolume && !copyAlways) {
-            fs::rename(p.source, p.destination); committed = true;
+            move(p.source, p.destination); committed = true;
         } else {
+            for (auto const& entry : entries) if (!entry.directory) locks.add(entry.relative.empty() ? p.source : p.source / entry.relative);
             if (p.directory) fs::create_directory(stage);
             else { HANDLE h = CreateFileW(stage.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr); require(h != INVALID_HANDLE_VALUE, "无法创建暂存文件。"); CloseHandle(h); }
             stagingOwned = true; uintmax_t done = 0; std::vector<char> a(1024 * 1024), b(1024 * 1024);
@@ -137,8 +155,11 @@ Result execute(Plan const& requested, Progress const& progress, bool copyAlways)
                 require(input.eof() && !input.bad() && output.peek() == EOF, "文件读取校验失败。"); done += e.size;
             }
             require(unchanged(p.source, entries), "复制期间原文件发生变化，请关闭使用它的程序后重试。");
-            fs::rename(p.source, backup); renamed = true;
-            fs::rename(stage, p.destination); stagingOwned = false; committed = true;
+            locks.clear();
+            move(p.source, backup); renamed = true;
+            for (auto const& entry : entries) if (!entry.directory) locks.add(entry.relative.empty() ? backup : backup / entry.relative);
+            require(unchanged(backup, entries), "原文件在操作期间发生变化，正在恢复原位置。");
+            move(stage, p.destination); stagingOwned = false; committed = true;
         }
         require(link(p.source, p.destination, p.directory), "链接创建失败，正在恢复原位置。"); linked = true;
         if (renamed) {
@@ -150,8 +171,8 @@ Result execute(Plan const& requested, Progress const& progress, bool copyAlways)
     } catch (std::exception const& ex) {
         std::error_code ec; bool restored = true;
         if (!linked) {
-            if (renamed) { fs::rename(backup, p.source, ec); restored = !ec; }
-            else if (committed) { fs::rename(p.destination, p.source, ec); restored = !ec; committed = !restored; }
+            if (renamed) { move(backup, p.source, ec); restored = !ec; }
+            else if (committed) { move(p.destination, p.source, ec); restored = !ec; committed = !restored; }
             if (restored && renamed && committed) fs::remove_all(p.destination, ec);
             if (stagingOwned) fs::remove_all(stage, ec);
         }
