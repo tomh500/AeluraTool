@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include "MainWindow.g.h"
 #include <filesystem>
+#include <atomic>
+#include "Integration/HotkeyManager.h"
 namespace winrt::AeluraTool::implementation {
     struct MainWindow : MainWindowT<MainWindow> {
         MainWindow() = default;
@@ -10,15 +12,25 @@ namespace winrt::AeluraTool::implementation {
         HWND hwnd_{};
         HANDLE process_{}, job_{}, singleton_{};
         DWORD pid_{};
-        int slot_ = 100;
-        bool registered_ = false, print_ = false, enabled_ = true;
-        UINT modifiers_ = MOD_CONTROL | MOD_ALT, key_ = 'A';
+        aelura::hotkeys::Manager hotkeys_;
+        HANDLE strike_{};
+        int category_{}, page_{};
+        bool moveBusy_{};
+        std::atomic<bool> cancelMove_{false};
+        std::atomic<uintmax_t> moveDone_{0}, moveTotal_{0};
+        Microsoft::UI::Dispatching::DispatcherQueueTimer moveTimer_{nullptr};
         std::filesystem::path config_;
         Microsoft::UI::Dispatching::DispatcherQueueTimer timer_{ nullptr };
         UINT pending_{}; unsigned attempts_{};
         void Page(int index);
         void Notice(hstring const& message, bool error = false);
-        bool Bind(UINT modifiers, UINT key, bool enabled, bool print, bool persist);
+        void RenderTools();
+        void RenderKeys();
+        void ActivateTool(std::wstring const& id);
+        void LaunchStrike();
+        winrt::fire_and_forget EditKey(size_t index);
+        winrt::fire_and_forget MoveFiles(bool inspectOnly);
+        void PickPath(bool source, bool folder);
         void Invoke(UINT command);
         HWND EngineWindow();
         static LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);

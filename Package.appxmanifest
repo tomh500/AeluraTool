@@ -11,7 +11,7 @@
   <Identity
     Name="27abd2dc-3cdf-47a6-a74b-7cae8037deaa"
     Publisher="CN=jingy"
-    Version="1.0.0.0" />
+    Version="1.1.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="27abd2dc-3cdf-47a6-a74b-7cae8037deaa" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
@@ -36,7 +36,7 @@
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
         DisplayName="遥汐工具箱"
-        Description="遥汐工具箱 · 截图与分享"
+        Description="遥汐 · 图像、文件与游戏工具"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
