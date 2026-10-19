@@ -55,6 +55,7 @@ void MainWindow::ApplyLanguage() {
     MoveButton().Content(box_value(tr("move.start")));
     CancelMoveButton().Content(box_value(tr("common.cancel")));
     StartupName().Text(tr("app.brand"));
+    LocalizeHash();
     // Refresh the selected-item presenter; changing an item's content alone leaves its cached text behind.
     ThemeChoice().SelectedIndex(-1); ThemeChoice().SelectedIndex(themeIndex);
     LanguageChoice().SelectedIndex(-1); LanguageChoice().SelectedIndex(languageIndex);

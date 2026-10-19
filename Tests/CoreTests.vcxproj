@@ -7,5 +7,6 @@
  <PropertyGroup><OutDir>$(ProjectDir)..\artifacts\tests\$(Configuration)\</OutDir><IntDir>$(OutDir)obj\</IntDir><VcpkgEnabled>false</VcpkgEnabled></PropertyGroup>
  <ItemDefinitionGroup><ClCompile><LanguageStandard>stdcpp17</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions><PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions><WarningLevel>Level4</WarningLevel></ClCompile><Link><SubSystem>Console</SubSystem><AdditionalDependencies>ole32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup>
  <ItemGroup><ClCompile Include="migration_tests.cpp"/><ClCompile Include="..\Integration\FileMigration.cpp"/><ClCompile Include="..\Integration\HotkeyManager.cpp"/><ClCompile Include="..\Integration\I18n.cpp"><AdditionalIncludeDirectories>$(ProjectDir)..\Tools\ScreenShotPlus\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile><ResourceCompile Include="..\Localization.rc"><AdditionalIncludeDirectories>$(ProjectDir)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile></ItemGroup>
+ <ItemGroup><ClCompile Include="hash_tests.cpp"/><ClCompile Include="..\Integration\FileHash.cpp"/></ItemGroup>
  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
 </Project>

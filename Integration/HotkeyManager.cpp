@@ -21,7 +21,8 @@ void Manager::load(HWND hwnd, std::filesystem::path path) {
         {L"preview", tr("capture.recent"), tr("nav.images"), MOD_CONTROL | MOD_ALT, 'P', false},
         {L"move", tr("keys.move"), tr("nav.files"), MOD_CONTROL | MOD_ALT, 'M', false},
         {L"strike", tr("keys.strike"), tr("nav.games"), MOD_CONTROL | MOD_ALT, 'S', false},
-        {L"print", tr("keys.print"), tr("nav.images"), 0, VK_SNAPSHOT, false}};
+        {L"print", tr("keys.print"), tr("nav.images"), 0, VK_SNAPSHOT, false},
+        {L"hash", tr("keys.hash"), tr("nav.files"), MOD_CONTROL | MOD_ALT, 'H', false}};
     for (size_t i = 0; i < bindings.size(); ++i) {
         auto& b = bindings[i]; b.slot = 200 + static_cast<int>(i) * 2;
         const auto section = L"Hotkey." + b.id;
@@ -67,7 +68,11 @@ bool Manager::save(size_t index, UINT mods, UINT key, bool enabled, std::wstring
 }
 void Manager::release() { for (auto& b : bindings) { if (b.registered) UnregisterHotKey(window, b.slot); b.registered = false; } }
 void Manager::localize() {
-    const char* titles[] = {"capture.start", "capture.recent", "keys.move", "keys.strike", "keys.print"};
-    for (size_t i = 0; i < bindings.size(); ++i) { bindings[i].title = tr(titles[i]); bindings[i].category = i18n::category(i == 2 ? 2 : i == 3 ? 3 : 1); }
+    for (auto& binding : bindings) {
+        const char* title = binding.id == L"capture" ? "capture.start" : binding.id == L"preview" ? "capture.recent" :
+            binding.id == L"move" ? "keys.move" : binding.id == L"strike" ? "keys.strike" : binding.id == L"hash" ? "keys.hash" : "keys.print";
+        binding.title = tr(title);
+        binding.category = i18n::category(binding.id == L"move" || binding.id == L"hash" ? 2 : binding.id == L"strike" ? 3 : 1);
+    }
 }
 }

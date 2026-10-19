@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <atomic>
 #include "Integration/HotkeyManager.h"
+#include "Integration/FileHash.h"
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
 namespace winrt::AeluraTool::implementation {
     struct MainWindow : MainWindowT<MainWindow> {
@@ -18,6 +19,11 @@ namespace winrt::AeluraTool::implementation {
         HANDLE strike_{};
         int category_{}, page_{};
         bool moveBusy_{};
+        enum class FileTask { None, Migration, Hash };
+        FileTask fileTask_{FileTask::None};
+        bool fileTaskNotice_{};
+        aelura::hash::Session hashSession_;
+        Microsoft::UI::Dispatching::DispatcherQueueTimer hashTimer_{nullptr};
         bool ready_{}, localizing_{}, startupPlayed_{};
         int languagePreference_{};
         Microsoft::UI::Xaml::Media::Animation::Storyboard startupBoard_{nullptr};
@@ -39,6 +45,16 @@ namespace winrt::AeluraTool::implementation {
         winrt::fire_and_forget EditKey(size_t index);
         winrt::fire_and_forget MoveFiles(bool inspectOnly);
         void PickPath(bool source, bool folder);
+        bool AcquireFileTask(FileTask task);
+        void ReleaseFileTask();
+        void SetupHash();
+        void LocalizeHash();
+        void RenderHash();
+        void InvalidateHash();
+        void CancelHash();
+        void PickHash(bool second);
+        void CopyHash(bool second);
+        winrt::fire_and_forget RunHash();
         void Invoke(UINT command);
         HWND EngineWindow();
         static LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);

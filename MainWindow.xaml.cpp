@@ -26,6 +26,7 @@ using aelura::i18n::tr;
         namespace capture = ::Aelura::Capture;
     }
     void MainWindow::Notice(hstring const& message, bool error) {
+        fileTaskNotice_ = false;
         Status().Title(error ? tr("common.error") : tr("app.name"));
         Status().IsOpen(true); Status().Message(message); Status().Severity(error ? InfoBarSeverity::Error : InfoBarSeverity::Success);
     }
@@ -35,18 +36,19 @@ using aelura::i18n::tr;
         KeysPage().Visibility(index == 1 ? Visibility::Visible : Visibility::Collapsed);
         PreferencesPage().Visibility(index == 2 ? Visibility::Visible : Visibility::Collapsed);
         MovePage().Visibility(index == 3 ? Visibility::Visible : Visibility::Collapsed);
+        HashPage().Visibility(index == 4 ? Visibility::Visible : Visibility::Collapsed);
         const wchar_t* categories[] = {tr("nav.all"), tr("nav.images"), tr("nav.files"), tr("nav.games")};
-        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : tr("move.title"));
-        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : tr("move.description"));
+        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 4 ? tr("hash.title") : tr("move.title"));
+        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 4 ? tr("hash.description") : tr("move.description"));
         ResultCount().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         auto standard = Application::Current().Resources().Lookup(box_value(L"DefaultButtonStyle")).as<Style>();
         auto selected = Application::Current().Resources().Lookup(box_value(L"AccentButtonStyle")).as<Style>();
         HomeNav().Style(index == 0 && category_ == 0 ? selected : standard);
         ImageNav().Style(index == 0 && category_ == 1 ? selected : standard);
-        FilesNav().Style((index == 0 && category_ == 2) || index == 3 ? selected : standard);
+        FilesNav().Style((index == 0 && category_ == 2) || index == 3 || index == 4 ? selected : standard);
         GamesNav().Style(index == 0 && category_ == 3 ? selected : standard);
         KeysNav().Style(index == 1 ? selected : standard); PreferencesNav().Style(index == 2 ? selected : standard);
-        if (index == 0) RenderTools(); if (index == 1) RenderKeys();
+        if (index == 0) RenderTools(); if (index == 1) RenderKeys(); if (index == 4) RenderHash();
     }
     void MainWindow::Setup() {
         check_hresult(this->try_as<::IWindowNative>()->get_WindowHandle(&hwnd_));
@@ -127,7 +129,7 @@ using aelura::i18n::tr;
         });
         moveTimer_ = DispatcherQueue().CreateTimer(); moveTimer_.Interval(std::chrono::milliseconds(120));
         moveTimer_.Tick([this](auto const&, auto const&) { auto total = moveTotal_.load(); MoveProgress().Value(total ? 100.0 * moveDone_.load() / total : 0); });
-        ApplyLanguage(); ready_ = true;
+        SetupHash(); ApplyLanguage(); ready_ = true;
         timer_ = DispatcherQueue().CreateTimer(); timer_.Interval(std::chrono::milliseconds(100));
         timer_.Tick([this](auto const&, auto const&) {
             if (HWND engine = EngineWindow()) {
@@ -189,7 +191,12 @@ using aelura::i18n::tr;
     }
     LRESULT CALLBACK MainWindow::WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) {
         auto self = reinterpret_cast<MainWindow*>(data);
-        if (msg == WM_CLOSE && self->moveBusy_) { self->Notice(tr("move.wait"), true); return 0; }
+        if (msg == WM_CLOSE && self->fileTask_ != FileTask::None) {
+            self->Notice(tr("files.wait"), true);
+            self->fileTaskNotice_ = true;
+            if (self->fileTask_ == FileTask::Hash) self->Page(4);
+            return 0;
+        }
         if (msg == WM_GETMINMAXINFO) { auto info = reinterpret_cast<MINMAXINFO*>(lp); info->ptMinTrackSize = {1000, 680}; return 0; }
         if (msg == WM_HOTKEY) {
             self->FinishStartup();
@@ -199,6 +206,7 @@ using aelura::i18n::tr;
             }
         }
         if (msg == WM_DESTROY) {
+            if (self->hashTimer_) self->hashTimer_.Stop();
             if (self->timer_) self->timer_.Stop();
             self->hotkeys_.release();
             if (auto engine = self->EngineWindow()) PostMessageW(engine, capture::Message, capture::Shutdown, 0);
@@ -208,6 +216,7 @@ using aelura::i18n::tr;
         return DefSubclassProc(hwnd, msg, wp, lp);
     }
     MainWindow::~MainWindow() {
+        if (hashTimer_) hashTimer_.Stop();
         if (timer_) timer_.Stop();
         if (strike_) CloseHandle(strike_);
         if (process_) CloseHandle(process_); if (job_) CloseHandle(job_); if (singleton_) CloseHandle(singleton_);

@@ -79,6 +79,7 @@ fire_and_forget MainWindow::EditKey(size_t index) {
 void MainWindow::ActivateTool(std::wstring const& id) {
     if (id == L"capture") Invoke(1);
     else if (id == L"move") { ShowWindow(hwnd_, SW_RESTORE); SetForegroundWindow(hwnd_); Page(3); }
+    else if (id == L"hash") { ShowWindow(hwnd_, SW_RESTORE); SetForegroundWindow(hwnd_); Page(4); }
     else if (id == L"strike") LaunchStrike();
 }
 void MainWindow::LaunchStrike() {
@@ -93,7 +94,7 @@ void MainWindow::LaunchStrike() {
     strike_ = pi.hProcess; CloseHandle(pi.hThread);
 }
 void MainWindow::PickPath(bool source, bool folder) {
-    if (moveBusy_) return;
+    if (fileTask_ != FileTask::None) return;
     try {
         com_ptr<IFileOpenDialog> dialog; check_hresult(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())));
         DWORD options{}; check_hresult(dialog->GetOptions(&options)); check_hresult(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | (folder ? FOS_PICKFOLDERS : FOS_FILEMUSTEXIST)));
@@ -103,7 +104,7 @@ void MainWindow::PickPath(bool source, bool folder) {
     } catch (hresult_error const& e) { Notice(e.message(), true); }
 }
 fire_and_forget MainWindow::MoveFiles(bool inspectOnly) {
-    if (moveBusy_) co_return; auto lifetime = get_strong();
+    if (!AcquireFileTask(FileTask::Migration)) co_return; auto lifetime = get_strong();
     auto source = std::filesystem::path(SourcePath().Text().c_str()), destination = std::filesystem::path(DestinationPath().Text().c_str());
     moveBusy_ = true; cancelMove_ = false; moveDone_ = 0; moveTotal_ = 0;
     auto controls = [&](bool enabled) { LanguageChoice().IsEnabled(enabled); SourcePath().IsEnabled(enabled); DestinationPath().IsEnabled(enabled); SourceFileButton().IsEnabled(enabled); SourceFolderButton().IsEnabled(enabled); DestinationButton().IsEnabled(enabled); CheckMoveButton().IsEnabled(enabled); MoveButton().IsEnabled(enabled); };
@@ -113,14 +114,14 @@ fire_and_forget MainWindow::MoveFiles(bool inspectOnly) {
     try { plan = aelura::migration::inspect(source, destination); } catch (std::exception const& e) { issue = message(e); }
     co_await wil::resume_foreground(queue);
     if (plan) MoveSummary().Text(format(*plan));
-    if (!plan || inspectOnly) { moveBusy_ = false; controls(true); MoveProgress().Visibility(Visibility::Collapsed); if (!issue.empty()) Notice(hstring(issue), true); co_return; }
+    if (!plan || inspectOnly) { moveBusy_ = false; ReleaseFileTask(); controls(true); MoveProgress().Visibility(Visibility::Collapsed); if (!issue.empty()) Notice(hstring(issue), true); co_return; }
     ContentDialog confirm; confirm.XamlRoot(Root().XamlRoot()); confirm.RequestedTheme(Root().RequestedTheme()); confirm.Title(box_value(tr("move.confirm"))); confirm.Content(box_value(format(*plan) + tr("move.close_programs"))); confirm.PrimaryButtonText(tr("move.proceed")); confirm.CloseButtonText(tr("common.cancel"));
     ContentDialogResult choice{}; try { choice = co_await confirm.ShowAsync(); } catch (hresult_error const& e) { Notice(e.message(), true); }
-    if (choice != ContentDialogResult::Primary) { moveBusy_ = false; controls(true); MoveProgress().Visibility(Visibility::Collapsed); co_return; }
+    if (choice != ContentDialogResult::Primary) { moveBusy_ = false; ReleaseFileTask(); controls(true); MoveProgress().Visibility(Visibility::Collapsed); co_return; }
     CancelMoveButton().Visibility(Visibility::Visible); MoveProgress().IsIndeterminate(false); moveTimer_.Start();
     co_await resume_background();
     auto result = aelura::migration::execute(*plan, [this](uintmax_t done, uintmax_t total) { moveDone_ = done; moveTotal_ = total; return !cancelMove_.load(); });
     co_await wil::resume_foreground(queue);
-    moveTimer_.Stop(); moveBusy_ = false; controls(true); CancelMoveButton().Visibility(Visibility::Collapsed); MoveProgress().Value(result.success ? 100 : 0); MoveSummary().Text(result.message); Notice(hstring(result.message), !result.success);
+    moveTimer_.Stop(); moveBusy_ = false; ReleaseFileTask(); controls(true); CancelMoveButton().Visibility(Visibility::Collapsed); MoveProgress().Value(result.success ? 100 : 0); MoveSummary().Text(result.message); Notice(hstring(result.message), !result.success);
 }
 }
