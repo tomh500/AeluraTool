@@ -12,20 +12,28 @@ void MainWindow::ApplyLanguage() {
     localizing_ = true;
     auto themeIndex = ThemeChoice().SelectedIndex(); auto languageIndex = LanguageChoice().SelectedIndex();
     Title(tr("app.title"));
-    BackLabel().Text(tr("nav.back"));
-    Automation::AutomationProperties::SetName(BackButton(), tr("nav.back"));
-    Controls::ToolTipService::SetToolTip(BackButton(), box_value(tr("nav.back_hint")));
+    HashBackLabel().Text(tr("nav.back")); MoveBackLabel().Text(tr("nav.back"));
+    for (auto button : {HashBackButton(), MoveBackButton()}) {
+        Automation::AutomationProperties::SetName(button, tr("nav.back"));
+        Controls::ToolTipService::SetToolTip(button, box_value(tr("nav.back_hint")));
+    }
+    LocalizeLifecycle();
     Localized1().Text(tr("app.brand"));
-    HomeNav().Content(box_value(tr("nav.all")));
     Localized2().Text(tr("nav.categories"));
-    ImageNav().Content(box_value(tr("nav.images")));
-    FilesNav().Content(box_value(tr("nav.files")));
-    GamesNav().Content(box_value(tr("nav.games")));
-    KeysNav().Content(box_value(tr("nav.keys")));
-    PreferencesNav().Content(box_value(tr("nav.settings")));
+    auto navigationLabel = [](Controls::Button const& button, wchar_t const* glyph, wchar_t const* title) {
+        Controls::StackPanel panel; panel.Orientation(Controls::Orientation::Horizontal); panel.Spacing(12);
+        Controls::FontIcon icon; icon.Glyph(glyph); icon.FontSize(16);
+        Controls::TextBlock label; label.Text(title); panel.Children().Append(icon); panel.Children().Append(label);
+        button.Content(panel); Automation::AutomationProperties::SetName(button, title);
+    };
+    navigationLabel(ImageNav(), L"\xE91B", tr("nav.images"));
+    navigationLabel(FilesNav(), L"\xE8B7", tr("nav.files"));
+    navigationLabel(GamesNav(), L"\xE7FC", tr("nav.games"));
+    navigationLabel(KeysNav(), L"\xE765", tr("nav.keys"));
+    navigationLabel(PreferencesNav(), L"\xE713", tr("nav.settings"));
     PageTitle().Text(tr("nav.all"));
     PageDescription().Text(tr("home.description"));
-    Search().PlaceholderText(tr("search.tools"));
+    Search().PlaceholderText(tr("search.global"));
     Automation::AutomationProperties::SetName(Search(), tr("search.accessible"));
     NoResults().Text(tr("search.none"));
     KeySearch().PlaceholderText(tr("search.keys"));
@@ -73,6 +81,7 @@ void MainWindow::ApplyLanguage() {
     }
     if (!moveBusy_) { MoveSummary().Text(L""); Status().IsOpen(false); }
     localizing_ = false;
+    UpdateSearch();
     Page(page_, -1, false);
 }
 }

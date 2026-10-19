@@ -25,7 +25,6 @@ void MainWindow::RenderTools() {
     ToolCards().Children().Clear(); unsigned count = 0;
     for (auto const& tool : aelura::catalog::tools) {
         if (category_ && category_ != tool.category) continue;
-        if (!aelura::catalog::matches(std::wstring(tr(tool.title)) + L" " + tr(tool.description) + L" " + tool.keywords, std::wstring(Search().Text()))) continue;
         ++count; Border card; card.Style(Root().Resources().Lookup(box_value(L"Card")).as<Style>());
         Grid grid; grid.ColumnSpacing(20); grid.ColumnDefinitions().Append(column({48, GridUnitType::Pixel})); grid.ColumnDefinitions().Append(column({1, GridUnitType::Star})); grid.ColumnDefinitions().Append(column({1, GridUnitType::Auto}));
         FontIcon icon; icon.Glyph(tool.glyph); icon.FontSize(28); icon.VerticalAlignment(VerticalAlignment::Center); grid.Children().Append(icon);

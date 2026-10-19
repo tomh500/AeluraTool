@@ -2,7 +2,9 @@
 #include "MainWindow.g.h"
 #include <filesystem>
 #include <atomic>
+#include <optional>
 #include <vector>
+#include "Integration/DesktopLifecycle.h"
 #include "Integration/HotkeyManager.h"
 #include "Integration/FileHash.h"
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
@@ -10,7 +12,8 @@ namespace winrt::AeluraTool::implementation {
     struct MainWindow : MainWindowT<MainWindow> {
         MainWindow() = default;
         ~MainWindow();
-        void Setup();
+        void Setup(bool startupActivation = false);
+        void ShowInitial();
         bool Ready() const { return ready_; }
     private:
         HWND hwnd_{};
@@ -18,10 +21,15 @@ namespace winrt::AeluraTool::implementation {
         DWORD pid_{};
         aelura::hotkeys::Manager hotkeys_;
         HANDLE strike_{};
-        int category_{}, page_{};
+        int category_{1}, page_{};
+        struct SearchTarget { std::wstring label, id; int page, category; };
+        std::vector<SearchTarget> searchTargets_;
         struct NavigationEntry { int page, category; winrt::hstring query; };
-        std::vector<NavigationEntry> backStack_;
+        std::optional<NavigationEntry> toolReturn_;
         bool restoringNavigation_{};
+        aelura::desktop::TrayIcon tray_;
+        int closeAction_{};
+        bool closeDialogOpen_{}, startupBusy_{}, startupActivation_{};
         bool moveBusy_{};
         enum class FileTask { None, Migration, Hash };
         FileTask fileTask_{FileTask::None};
@@ -39,6 +47,16 @@ namespace winrt::AeluraTool::implementation {
         UINT pending_{}; unsigned attempts_{};
         void Page(int index, int category = -1, bool remember = true);
         void GoBack();
+        void SetupSearch();
+        void UpdateSearch();
+        void OpenSearchResult(winrt::hstring const& label);
+        void SetupLifecycle();
+        void LocalizeLifecycle();
+        void RestoreWindow();
+        bool HideToTray();
+        bool SaveBehavior(wchar_t const* key, int value);
+        winrt::fire_and_forget RequestClose(bool explicitExit = false);
+        winrt::fire_and_forget StartupSetting(std::optional<bool> enable = std::nullopt);
         void Notice(hstring const& message, bool error = false);
         void RenderTools();
         void ApplyLanguage();

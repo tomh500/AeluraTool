@@ -147,6 +147,9 @@
     <ClCompile Include="MainWindow.Hash.cpp" />
     <ClCompile Include="MainWindow.Localization.cpp" />
     <ClCompile Include="MainWindow.Startup.cpp" />
+    <ClCompile Include="MainWindow.Lifecycle.cpp" />
+    <ClCompile Include="MainWindow.Search.cpp" />
+    <ClCompile Include="Integration\DesktopLifecycle.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\I18n.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><AdditionalIncludeDirectories>$(ProjectDir)Tools\ScreenShotPlus\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <ClCompile Include="Integration\HotkeyManager.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\FileMigration.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>

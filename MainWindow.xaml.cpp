@@ -33,21 +33,23 @@ using aelura::i18n::tr;
         Status().IsOpen(true); Status().Message(message); Status().Severity(error ? InfoBarSeverity::Error : InfoBarSeverity::Success);
     }
     void MainWindow::GoBack() {
-        if (backStack_.empty()) return;
-        auto previous = backStack_.back(); backStack_.pop_back();
+        if (page_ != 3 && page_ != 4) return;
+        auto previous = toolReturn_.value_or(NavigationEntry{0, 2, L""}); toolReturn_.reset();
         restoringNavigation_ = true;
         Search().Text(previous.query);
         restoringNavigation_ = false;
         Page(previous.page, previous.category, false);
-        BackButton().Focus(FocusState::Programmatic);
+        UpdateSearch(); Search().IsSuggestionListOpen(false);
+        auto navigation = previous.page == 2 ? PreferencesNav() : previous.page == 1 ? KeysNav() :
+            previous.category == 1 ? ImageNav() : previous.category == 3 ? GamesNav() : FilesNav();
+        navigation.Focus(FocusState::Programmatic);
     }
     void MainWindow::Page(int index, int category, bool remember) {
         const int nextCategory = category < 0 ? category_ : category;
-        if (remember && (index != page_ || nextCategory != category_))
-            backStack_.push_back({page_, category_, Search().Text()});
+        if (remember && (index == 3 || index == 4) && page_ != 3 && page_ != 4)
+            toolReturn_ = NavigationEntry{page_, category_, Search().Text()};
         category_ = nextCategory;
         page_ = index;
-        BackButton().IsEnabled(!backStack_.empty());
         HomePage().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         KeysPage().Visibility(index == 1 ? Visibility::Visible : Visibility::Collapsed);
         PreferencesPage().Visibility(index == 2 ? Visibility::Visible : Visibility::Collapsed);
@@ -58,22 +60,23 @@ using aelura::i18n::tr;
         PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 4 ? tr("hash.description") : tr("move.description"));
         ResultCount().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         auto standard = Application::Current().Resources().Lookup(box_value(L"DefaultButtonStyle")).as<Style>();
-        auto selected = Application::Current().Resources().Lookup(box_value(L"AccentButtonStyle")).as<Style>();
-        HomeNav().Style(index == 0 && category_ == 0 ? selected : standard);
+        auto selected = Root().Resources().Lookup(box_value(L"NavigationSelected")).as<Style>();
         ImageNav().Style(index == 0 && category_ == 1 ? selected : standard);
         FilesNav().Style((index == 0 && category_ == 2) || index == 3 || index == 4 ? selected : standard);
         GamesNav().Style(index == 0 && category_ == 3 ? selected : standard);
         KeysNav().Style(index == 1 ? selected : standard); PreferencesNav().Style(index == 2 ? selected : standard);
         if (index == 0) RenderTools(); if (index == 1) RenderKeys(); if (index == 4) RenderHash();
+        if (index == 2 && ready_) StartupSetting();
     }
-    void MainWindow::Setup() {
+    void MainWindow::Setup(bool startupActivation) {
+        startupActivation_ = startupActivation;
         check_hresult(this->try_as<::IWindowNative>()->get_WindowHandle(&hwnd_));
         wchar_t executablePath[32768]{}; GetModuleFileNameW(nullptr, executablePath, 32768);
         AppWindow().SetIcon((std::filesystem::path(executablePath).parent_path() / L"Assets" / L"App.ico").wstring());
         singleton_ = CreateMutexW(nullptr, FALSE, L"Local\\AeluraTool.Singleton");
         if (!singleton_) throw_last_error();
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
-            EnumWindows([](HWND window, LPARAM)->BOOL {
+            if (!startupActivation_) EnumWindows([](HWND window, LPARAM)->BOOL {
                 if (GetPropW(window, L"AeluraTool.MainWindow")) { ShowWindow(window, SW_RESTORE); SetForegroundWindow(window); return FALSE; } return TRUE;
                 }, 0);
             Close(); return;
@@ -126,19 +129,19 @@ using aelura::i18n::tr;
         Root().Loaded([this](auto const&, auto const&) { PlayStartup(); });
         Root().AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
         Root().AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
-        BackButton().Click([this](auto const&, auto const&) { GoBack(); });
+        HashBackButton().Click([this](auto const&, auto const&) { GoBack(); });
+        MoveBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         Input::KeyboardAccelerator backKey;
         backKey.Key(Windows::System::VirtualKey::Left);
         backKey.Modifiers(Windows::System::VirtualKeyModifiers::Menu);
         backKey.Invoked([this](auto const&, Input::KeyboardAcceleratorInvokedEventArgs const& args) { GoBack(); args.Handled(true); });
         Root().KeyboardAccelerators().Append(backKey);
-        HomeNav().Click([this](auto const&, auto const&) { Page(0, 0); });
         ImageNav().Click([this](auto const&, auto const&) { Page(0, 1); });
         FilesNav().Click([this](auto const&, auto const&) { Page(0, 2); });
         GamesNav().Click([this](auto const&, auto const&) { Page(0, 3); });
         KeysNav().Click([this](auto const&, auto const&) { Page(1); });
         PreferencesNav().Click([this](auto const&, auto const&) { Page(2); });
-        Search().TextChanged([this](auto const&, auto const&) { if (restoringNavigation_) return; if (!Search().Text().empty() && page_ != 0) { Page(0, 0); } else RenderTools(); });
+        SetupSearch();
         KeySearch().TextChanged([this](auto const&, auto const&) { RenderKeys(); });
         SourceFileButton().Click([this](auto const&, auto const&) { PickPath(true, false); });
         SourceFolderButton().Click([this](auto const&, auto const&) { PickPath(true, true); });
@@ -153,7 +156,7 @@ using aelura::i18n::tr;
         });
         moveTimer_ = DispatcherQueue().CreateTimer(); moveTimer_.Interval(std::chrono::milliseconds(120));
         moveTimer_.Tick([this](auto const&, auto const&) { auto total = moveTotal_.load(); MoveProgress().Value(total ? 100.0 * moveDone_.load() / total : 0); });
-        SetupHash(); ApplyLanguage(); ready_ = true;
+        SetupHash(); SetupLifecycle(); ApplyLanguage(); ready_ = true;
         timer_ = DispatcherQueue().CreateTimer(); timer_.Interval(std::chrono::milliseconds(100));
         timer_.Tick([this](auto const&, auto const&) {
             if (HWND engine = EngineWindow()) {
@@ -215,6 +218,20 @@ using aelura::i18n::tr;
     }
     LRESULT CALLBACK MainWindow::WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) {
         auto self = reinterpret_cast<MainWindow*>(data);
+        if (msg == aelura::desktop::TrayMessage) {
+            const auto event = LOWORD(lp);
+            if (event == NIN_SELECT || event == NIN_KEYSELECT || event == WM_LBUTTONDBLCLK) self->RestoreWindow();
+            else if (event == WM_CONTEXTMENU) {
+                const auto command = self->tray_.Menu();
+                if (command == 1) self->RestoreWindow();
+                if (command == 2) self->RequestClose(true);
+            }
+            return 0;
+        }
+        if (self->tray_.TaskbarCreatedMessage() && msg == self->tray_.TaskbarCreatedMessage()) {
+            if (!self->tray_.Ensure() && !IsWindowVisible(hwnd)) self->RestoreWindow();
+            return 0;
+        }
         if (msg == WM_CLOSE && self->fileTask_ != FileTask::None) {
             self->Notice(tr("files.wait"), true);
             self->fileTaskNotice_ = true;
@@ -222,6 +239,7 @@ using aelura::i18n::tr;
             return 0;
         }
         if (msg == WM_GETMINMAXINFO) { auto info = reinterpret_cast<MINMAXINFO*>(lp); info->ptMinTrackSize = {1000, 680}; return 0; }
+        if (msg == WM_CLOSE) { self->RequestClose(); return 0; }
         if (msg == WM_HOTKEY) {
             self->FinishStartup();
             for (auto const& b : self->hotkeys_.bindings) if (b.registered && wp == static_cast<WPARAM>(b.slot)) {
@@ -230,6 +248,7 @@ using aelura::i18n::tr;
             }
         }
         if (msg == WM_DESTROY) {
+            self->tray_.Remove();
             if (self->hashTimer_) self->hashTimer_.Stop();
             if (self->timer_) self->timer_.Stop();
             self->hotkeys_.release();

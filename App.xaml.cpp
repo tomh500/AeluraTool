@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
+#include <winrt/Windows.ApplicationModel.h>
 
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -37,9 +38,14 @@ namespace winrt::AeluraTool::implementation
     /// <param name="e">Details about the launch request and process.</param>
     void App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
     {
+        bool startupActivation = false;
+        try {
+            auto activation = Windows::ApplicationModel::AppInstance::GetActivatedEventArgs();
+            startupActivation = activation && activation.Kind() == Windows::ApplicationModel::Activation::ActivationKind::StartupTask;
+        } catch (hresult_error const&) { /* Keep a manual launch accessible if activation metadata is unavailable. */ }
         auto main = make<MainWindow>();
         window = main;
-        get_self<MainWindow>(main)->Setup();
-        if (get_self<MainWindow>(main)->Ready()) window.Activate();
+        get_self<MainWindow>(main)->Setup(startupActivation);
+        if (get_self<MainWindow>(main)->Ready()) get_self<MainWindow>(main)->ShowInitial();
     }
 }
