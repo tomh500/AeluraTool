@@ -5,4 +5,7 @@
   <Project Path="AeluraTool.vcxproj" Id="cc02198f-6aef-453d-a863-e12a812c4856">
     <Deploy />
   </Project>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/CoreTests.vcxproj" Id="47c410aa-f2b3-4b07-be45-8527e7361d86" />
+  </Folder>
 </Solution>

@@ -7,13 +7,10 @@
 #include <iostream>
 #include <stdexcept>
 namespace fs = std::filesystem;
-void run_hash_tests(fs::path const& root);
 void check(bool ok, char const* what) { if (!ok) throw std::runtime_error(what); }
 void write(fs::path const& p, std::string const& value = "content") { fs::create_directories(p.parent_path()); std::ofstream f(p, std::ios::binary); f << value; }
 std::string read(fs::path const& p) { std::ifstream f(p, std::ios::binary); return {std::istreambuf_iterator<char>(f), {}}; }
-int main() {
-    auto root = fs::temp_directory_path() / (L"AeluraTests-" + std::to_wstring(GetCurrentProcessId()));
-    try {
+void run_migration_tests(fs::path const& root) {
         check(aelura::i18n::resolve(0, L"zh-CN") == 0 && aelura::i18n::resolve(0, L"zh-TW") == 0, "Chinese locale detection failed");
         check(aelura::i18n::resolve(0, L"ja-JP") == 1 && aelura::i18n::resolve(0, L"de-DE") == 1, "English fallback failed");
         check(aelura::i18n::resolve(1, L"en-US") == 0 && aelura::i18n::resolve(2, L"zh-CN") == 1, "language override failed");
@@ -21,7 +18,6 @@ int main() {
         aelura::i18n::select(1); check(std::wstring(aelura::i18n::tr("nav.all")) == L"全部工具", "Chinese resource failed");
         aelura::i18n::select(0);
         fs::create_directories(root / "dest");
-        run_hash_tests(root / "hash");
         auto rejects = [&](fs::path const& src, fs::path const& dst) { try { aelura::migration::inspect(src, dst); return false; } catch (...) { return true; } };
         auto run = [&](fs::path const& src, bool copy = false) { return aelura::migration::execute(aelura::migration::inspect(src, root / "dest"), [](auto, auto) { return true; }, copy); };
         write(root / L"中文文件.txt"); auto r = run(root / L"中文文件.txt");
@@ -79,6 +75,5 @@ int main() {
         aelura::i18n::select(2); manager.localize();
         check(manager.bindings.back().title == L"Open file hash verifier" && manager.bindings.back().category == L"Files", "hash binding localization failed");
         manager.release(); DestroyWindow(window);
-        fs::remove_all(root); std::cout << "PASS: migration, cancellation, source changes, empty directories, conflicts, persistence rollback, search\n"; return 0;
-    } catch (std::exception const& e) { std::cerr << "FAIL: " << e.what() << " (sandbox: " << root << ")\n"; return 1; }
+        std::cout << "PASS: migration, cancellation, source changes, empty directories, conflicts, persistence rollback, search\n";
 }

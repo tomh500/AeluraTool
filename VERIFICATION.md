@@ -1,5 +1,14 @@
 # 验证记录
 
+## 独立测试工程（2026-10-19）
+
+- 将已有 `Tests/CoreTests.vcxproj` 纳入 `AeluraTool.slnx` 的 Tests 文件夹，与主程序并列；新增独立 `test_main.cpp`，迁移测试不再承担程序入口。测试源码未加入主程序。
+- Debug / Release x64 全解决方案构建通过，包含主程序、CoreTests、截图组件和 StrikeSense；日志为忽略目录中的 `test-project-build-debug.txt`、`test-project-build-release.txt`。
+- 最终 Debug / Release 完整测试脚本均通过：哈希、迁移核心、取消、文件变化和目标冲突、搜索、语言资源、快捷键注册/保存失败回滚，以及截图握手、语言切换、未知指令拒绝、退出与宿主 Job 生命周期。资源检查为 413 对翻译、393 个静态引用；日志为 `artifacts/test-project-debug.txt`、`artifacts/test-project-release.txt`。
+- 分别运行 Debug 的 `-Suite hash -CoreOnly` 和 `-Suite migration -CoreOnly`，均通过；通过 MSBuild `/t:RunTests` 构建并运行全部核心测试。非法 `--suite invalid` 输出用法并返回退出码 2。
+- 测试入口独占创建临时目录，成功清理、失败保留；未迁移用户真实文件。测试脚本现在先构建截图组件，避免依赖之前构建留下的可执行文件。
+- 局限：当前权限无法创建文件符号链接（错误 1314），哈希符号链接样本明确输出 LIMIT。此次未重新操作主程序窗口验证主题外观和分类导航，未验证 Visual Studio 测试资源管理器发现（当前使用控制台运行器，不提供自动发现），也未验证 Visual Studio 2022 环境。
+
 ## 文件哈希校验器（2026-10-19）
 
 - 分支：`codex/file-hash-verifier`。最终 Release / Debug x64 主程序、截图组件和 StrikeSense 均构建成功；新代码无编译警告。未修改第三方模块源文件。
