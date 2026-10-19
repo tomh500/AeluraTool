@@ -25,6 +25,8 @@ namespace winrt::AeluraTool::implementation {
         struct SearchTarget { std::wstring label, id; int page, category; };
         std::vector<SearchTarget> searchTargets_;
         struct NavigationEntry { int page, category; winrt::hstring query; };
+        struct NavigationSnapshot { NavigationEntry location; std::optional<NavigationEntry> toolReturn; };
+        std::vector<NavigationSnapshot> navigationHistory_;
         std::optional<NavigationEntry> toolReturn_;
         bool restoringNavigation_{};
         aelura::desktop::TrayIcon tray_;
@@ -47,6 +49,7 @@ namespace winrt::AeluraTool::implementation {
         UINT pending_{}; unsigned attempts_{};
         void Page(int index, int category = -1, bool remember = true);
         void GoBack();
+        void GoHistoryBack();
         void SetupSearch();
         void UpdateSearch();
         void OpenSearchResult(winrt::hstring const& label);

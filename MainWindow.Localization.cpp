@@ -18,6 +18,8 @@ void MainWindow::ApplyLanguage() {
         Controls::ToolTipService::SetToolTip(button, box_value(tr("nav.back_hint")));
     }
     LocalizeLifecycle();
+    Automation::AutomationProperties::SetName(HistoryBackButton(), tr("nav.back"));
+    Controls::ToolTipService::SetToolTip(HistoryBackButton(), box_value(tr("nav.back_hint")));
     Localized1().Text(tr("app.brand"));
     Localized2().Text(tr("nav.categories"));
     auto navigationLabel = [](Controls::Button const& button, wchar_t const* glyph, wchar_t const* title) {

@@ -34,6 +34,7 @@ using aelura::i18n::tr;
     }
     void MainWindow::GoBack() {
         if (page_ != 3 && page_ != 4) return;
+        navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
         auto previous = toolReturn_.value_or(NavigationEntry{0, 2, L""}); toolReturn_.reset();
         restoringNavigation_ = true;
         Search().Text(previous.query);
@@ -44,12 +45,24 @@ using aelura::i18n::tr;
             previous.category == 1 ? ImageNav() : previous.category == 3 ? GamesNav() : FilesNav();
         navigation.Focus(FocusState::Programmatic);
     }
+    void MainWindow::GoHistoryBack() {
+        if (navigationHistory_.empty()) return;
+        auto previous = navigationHistory_.back(); navigationHistory_.pop_back();
+        toolReturn_ = previous.toolReturn;
+        restoringNavigation_ = true; Search().Text(previous.location.query); restoringNavigation_ = false;
+        Page(previous.location.page, previous.location.category, false);
+        UpdateSearch(); Search().IsSuggestionListOpen(false);
+        if (!navigationHistory_.empty()) HistoryBackButton().Focus(FocusState::Programmatic);
+    }
     void MainWindow::Page(int index, int category, bool remember) {
         const int nextCategory = category < 0 ? category_ : category;
+        if (remember && (index != page_ || nextCategory != category_))
+            navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
         if (remember && (index == 3 || index == 4) && page_ != 3 && page_ != 4)
             toolReturn_ = NavigationEntry{page_, category_, Search().Text()};
         category_ = nextCategory;
         page_ = index;
+        HistoryBackButton().IsEnabled(!navigationHistory_.empty());
         HomePage().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         KeysPage().Visibility(index == 1 ? Visibility::Visible : Visibility::Collapsed);
         PreferencesPage().Visibility(index == 2 ? Visibility::Visible : Visibility::Collapsed);
@@ -131,10 +144,11 @@ using aelura::i18n::tr;
         Root().AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
         HashBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         MoveBackButton().Click([this](auto const&, auto const&) { GoBack(); });
+        HistoryBackButton().Click([this](auto const&, auto const&) { GoHistoryBack(); });
         Input::KeyboardAccelerator backKey;
         backKey.Key(Windows::System::VirtualKey::Left);
         backKey.Modifiers(Windows::System::VirtualKeyModifiers::Menu);
-        backKey.Invoked([this](auto const&, Input::KeyboardAcceleratorInvokedEventArgs const& args) { GoBack(); args.Handled(true); });
+        backKey.Invoked([this](auto const&, Input::KeyboardAcceleratorInvokedEventArgs const& args) { GoHistoryBack(); args.Handled(true); });
         Root().KeyboardAccelerators().Append(backKey);
         ImageNav().Click([this](auto const&, auto const&) { Page(0, 1); });
         FilesNav().Click([this](auto const&, auto const&) { Page(0, 2); });

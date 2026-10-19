@@ -13,7 +13,7 @@
   <Border x:Name="SidebarShell" Grid.RowSpan="2" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0" Padding="18,28">
    <Grid>
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <StackPanel Margin="10,0,0,32" Spacing="5"><TextBlock x:Name="Localized1" Text="" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="AELURA TOOL" FontSize="11" CharacterSpacing="180" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel Margin="0,0,0,24" Spacing="16"><Button x:Name="HistoryBackButton" Width="36" Height="32" IsEnabled="False" HorizontalAlignment="Left" Style="{StaticResource SubtleButtonStyle}"><FontIcon Glyph="&#xE72B;" FontSize="16"/></Button><StackPanel Margin="10,0,0,0" Spacing="5"><TextBlock x:Name="Localized1" Text="" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="AELURA TOOL" FontSize="11" CharacterSpacing="180" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></StackPanel>
     <StackPanel Grid.Row="1" Spacing="6">
      <TextBlock x:Name="Localized2" Text="" FontSize="12" Margin="12,22,0,6" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
      <Button x:Name="ImageNav" Content="" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
