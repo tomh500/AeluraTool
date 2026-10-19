@@ -1,5 +1,14 @@
 # 验证记录
 
+## 返回导航、程序图标与打包（2026-10-19）
+
+- 开始时工作区干净。新增带中英文资源、无障碍名称及提示的返回按钮；原生窗口内 Alt+Left 加速键支持同一返回操作，不占用系统全局热键。页面与分类切换记录返回历史，语言刷新不新增历史。
+- 最终 Release / Debug x64 解决方案构建通过。两套完整测试通过：哈希、迁移、取消、冲突、搜索、语言、快捷键注册与保存失败回滚、截图通信和 Job 生命周期；415 对资源键、395 个静态引用有效。日志为 `artifacts/navigation-build-*.txt`、`artifacts/navigation-test-*.txt`。
+- Release 实际窗口验证：文件分类进入哈希工具，点击返回恢复文件分类，再用 Alt+Left 回到首页；搜索 checksum 后打开哈希工具，返回保留关键词及单条结果；设置页切换英语后返回直接恢复原搜索页，没有产生多余语言刷新历史。浅色中文与深色英文返回入口和页面显示正常。
+- 用户指定原图保存于 Assets/AppSource.jpg，按原比例生成多尺寸 ICO、方形/宽幅包图标与启动图；主程序独立图标资源编译通过，最终部署确认 Assets/App.ico 存在，并实测窗口标题栏显示新图标。
+- `scripts/package.ps1` 实际生成 Release x64 未签名 MSIX（约 8 MiB），输出在 `artifacts/packages/AeluraTool_1.2.0.0_x64_Test`。检查包内容包含 ICO、主程序、截图组件、StrikeSense 和许可证；依赖输出含 x64 Windows App Runtime 和 VCLibs。日志为 `artifacts/navigation-package.txt`。
+- 局限：文件符号链接样本因权限 1314 明确跳过；没有操作用户真实文件。未验证异机安装、可信证书签名、升级安装或 Windows 图标缓存刷新；未实测任务进行中返回导航，任务核心及进程生命周期由自动测试覆盖。打包证书分支未实际执行。第三方授权边界见 BUILD_AND_DISTRIBUTE.md。
+
 ## 独立测试工程（2026-10-19）
 
 - 将已有 `Tests/CoreTests.vcxproj` 纳入 `AeluraTool.slnx` 的 Tests 文件夹，与主程序并列；新增独立 `test_main.cpp`，迁移测试不再承担程序入口。测试源码未加入主程序。

@@ -16,6 +16,8 @@ Windows 桌面工具集合，主界面使用 C++/WinRT 与 WinUI 3。
 
 ## 构建和运行
 
+完整的编译环境、MSIX 签名打包、安装依赖与二次分发说明见 [BUILD_AND_DISTRIBUTE.md](BUILD_AND_DISTRIBUTE.md)。`scripts/package.ps1` 可生成 Release x64 安装包，默认不签名。
+
 需要 Visual Studio C++/WinUI 工作负载、Windows SDK，以及 packages.config 中的 NuGet 包。StrikeSense 依赖 vcpkg 的 x64-windows-static：nlohmann-json、cpp-httplib（brotli）、yaml-cpp、sdl2、sdl2-mixer、sdl2-ttf、simdjson 及其传递依赖。默认位置为 %USERPROFILE%/vcpkg，可通过 MSBuild 属性 AeluraVcpkgRoot 指定其他路径。
 
 ```powershell
