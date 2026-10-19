@@ -43,6 +43,14 @@
 
 脚本构建 Release x64，并在 `artifacts\packages` 生成 MSIX、依赖目录和安装脚本。默认关闭签名，用于检查包内容；未签名包不能直接当成可安装发行版。
 
+要整理可以发给测试者的完整 ZIP，使用当前用户证书存储中可访问私钥的代码签名证书：
+
+```powershell
+.\scripts\distribute.ps1 -CertificateThumbprint '替换为实际的40位证书指纹'
+```
+
+该脚本调用签名打包，核对包签名者与所选证书一致，将 MSIX、公开 CER、x64 运行依赖、安装脚本、许可证与说明汇总到 `artifacts\distribution` 的 ZIP。不导出私钥。使用自签证书时，目标用户仍需信任公开证书；ZIP 中 README.txt 说明安装步骤。本轮最终 1.3.1.0 测试分发使用新建的本地不可导出私钥证书（Subject 为 CN=jingy），不是公开受信任证书；版本号高于本轮开发部署的 1.3.0.0。
+
 已有可用签名证书且私钥可访问时，将实际证书 SHA-1 指纹传给脚本：
 
 ```powershell
@@ -61,7 +69,7 @@
 - 用户可双击已签名的 MSIX；缺少依赖时，使用包输出中的安装脚本，或先安装 `Dependencies\x64` 中所需的框架包，再安装主包。
 - 当前生成的清单依赖 `Microsoft.WindowsAppRuntime.2`（最低 2.5.1.0）和 `Microsoft.VCLibs.140.00.UWPDesktop`（最低 14.0.33728.0）。以本次包内清单为准，升级 SDK 后应重新检查。详见 [Windows App SDK 部署文档](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/deploy-overview)。
 - 每次发布升级前，递增 `Package.appxmanifest` 中四段版本号；同一应用保持 Identity Name 与 Publisher 稳定。使用不同发布者身份时，应明确作为另一个应用分发，不能假定沿用原包的设置和升级关系。
-- 正式发布前在干净的 Windows x64 设备或虚拟机上验证安装、启动、升级、卸载、运行库依赖及工具进程。当前工作只验证本机开发部署与未签名打包，没有验证异机安装或证书签名。
+- 正式发布前在干净的 Windows x64 设备或虚拟机上验证安装、启动、升级、卸载、运行库依赖及工具进程。本轮验证本机开发部署、签名打包、分发 ZIP 内容与签名者指纹，没有验证异机安装和受信任证书链。
 
 ## 5. 修改后二次分发
 
