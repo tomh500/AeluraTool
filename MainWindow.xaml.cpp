@@ -13,6 +13,8 @@
 #include <shobjidl.h>
 #include <winrt/Windows.UI.Text.h>
 #include <winrt/Microsoft.UI.Xaml.Input.h>
+#include <winrt/Microsoft.UI.Windowing.h>
+#include <winrt/Windows.System.h>
 #include <dwmapi.h>
 #pragma comment(lib, "Dwmapi.lib")
 #pragma comment(lib, "Comctl32.lib")
@@ -52,6 +54,8 @@ using aelura::i18n::tr;
     }
     void MainWindow::Setup() {
         check_hresult(this->try_as<::IWindowNative>()->get_WindowHandle(&hwnd_));
+        wchar_t executablePath[32768]{}; GetModuleFileNameW(nullptr, executablePath, 32768);
+        AppWindow().SetIcon((std::filesystem::path(executablePath).parent_path() / L"Assets" / L"App.ico").wstring());
         singleton_ = CreateMutexW(nullptr, FALSE, L"Local\\AeluraTool.Singleton");
         if (!singleton_) throw_last_error();
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
