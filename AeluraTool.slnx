@@ -7,5 +7,6 @@
   </Project>
   <Folder Name="/Tests/">
     <Project Path="Tests/CoreTests.vcxproj" Id="47c410aa-f2b3-4b07-be45-8527e7361d86" />
+    <Project Path="Tests/CaptureSharingTests.vcxproj" Id="07603d95-0b90-485a-be32-a4e02aa13531" />
   </Folder>
 </Solution>

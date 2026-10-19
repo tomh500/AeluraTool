@@ -1,6 +1,7 @@
 #include "preview.h"
 #include "ui.h"
 #include "visual_effects.h"
+#include "sharing.h"
 using namespace std;
 using namespace Gdiplus;
 namespace {
@@ -24,6 +25,7 @@ struct Preview {
 int viewWidth = 320, viewHeight = 294;
 RectF closeButton{278, 12, 28, 28}, imageRect{16, 52, 288, 166};
 RectF pinButton{242, 12, 28, 28};
+RectF copyButton{206, 12, 28, 28};
 RectF PinnedButton(bool close) {
     RECT client{}; GetClientRect(preview.window, &client); const float s = ui::Scale(preview.window);
     return {max(0.0f, client.right / s - (close ? 34 : 66)), 4, 28, 28};
@@ -33,6 +35,7 @@ void Layout() {
     viewWidth = widths[preview.size]; viewHeight = heights[preview.size];
     closeButton.X = static_cast<float>(viewWidth - 42);
     pinButton.X = static_cast<float>(viewWidth - 78);
+    copyButton.X = static_cast<float>(viewWidth - 114);
     imageRect.Width = static_cast<float>(viewWidth - 32); imageRect.Height = static_cast<float>(viewHeight - 128);
 }
 void DrawPreview(HWND hwnd, HDC target = nullptr) {
@@ -59,7 +62,8 @@ void DrawPreview(HWND hwnd, HDC target = nullptr) {
         g.DrawLine(&tick, 17.0f, 25.0f, 17 + first * 4, 25 + first * 4);
         if (check > 1.0f / 3) { const float second = (check - 1.0f / 3) * 1.5f; g.DrawLine(&tick, 21.0f, 29.0f, 21 + second * 9, 29 - second * 10); }
     }
-    ui::Text(g, ui::Inside(preview.mouse, pinButton) ? tr("screen.preview.002") : preview.dragStatus.empty() ? (preview.file.empty() ? tr("screen.preview.003") : tr("screen.preview.004")) : preview.dragStatus, {40, 17, static_cast<float>(viewWidth - 126), 26}, 14, ui::accent, true);
+    ui::Text(g, ui::Inside(preview.mouse, copyButton) ? tr("screen.share.copy") : ui::Inside(preview.mouse, pinButton) ? tr("screen.preview.002") : preview.dragStatus.empty() ? (preview.file.empty() ? tr("screen.preview.003") : tr("screen.preview.004")) : preview.dragStatus, {40, 17, static_cast<float>(viewWidth - 162), 26}, 14, ui::accent, true);
+    ui::Button(g, hwnd, copyButton, L"⧉", false, ui::Inside(preview.mouse, copyButton));
     ui::Button(g, hwnd, pinButton, tr("screen.preview.005"), false, ui::Inside(preview.mouse, pinButton));
     ui::Button(g, hwnd, closeButton, L"×", false, ui::Inside(preview.mouse, closeButton));
     ui::Round(g, imageRect, 10, ui::surface);
@@ -127,7 +131,7 @@ LRESULT CALLBACK PreviewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         const float scale = ui::Scale(hwnd);
         const POINT logical{static_cast<LONG>(point.x / scale), static_cast<LONG>(point.y / scale)};
         if (preview.pinned) return ui::Inside(logical, PinnedButton(true)) || ui::Inside(logical, PinnedButton(false)) ? HTCLIENT : HTCAPTION;
-        return preview.movable && !ui::Inside(logical, closeButton) && !ui::Inside(logical, pinButton) && !ui::Inside(logical, imageRect) ? HTCAPTION : HTCLIENT;
+        return preview.movable && !ui::Inside(logical, closeButton) && !ui::Inside(logical, pinButton) && !ui::Inside(logical, copyButton) && !ui::Inside(logical, imageRect) ? HTCAPTION : HTCLIENT;
     }
     case WM_ENTERSIZEMOVE: preview.moving = true; return 0;
     case WM_EXITSIZEMOVE:
@@ -141,6 +145,7 @@ LRESULT CALLBACK PreviewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             return 0;
         }
         if (ui::Inside(preview.mouse, closeButton)) { DismissPreview(); return 0; }
+        if (ui::Inside(preview.mouse, copyButton)) { if (preview.image) PreviewCopyResult(CopyImageToClipboard(*preview.image, hwnd)); return 0; }
         if (ui::Inside(preview.mouse, pinButton)) { TogglePreviewPin(); return 0; }
         if (ui::Inside(preview.mouse, imageRect)) {
             preview.pressing = true; preview.pressed = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; SetCapture(hwnd);
@@ -169,7 +174,6 @@ LRESULT CALLBACK PreviewProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0}; TrackMouseEvent(&track);
         InvalidateRect(hwnd, nullptr, FALSE);
         if (preview.pressing && !preview.dragging && (wparam & MK_LBUTTON)) {
-            if (preview.file.empty()) return 0;
             const int dx = abs(GET_X_LPARAM(lparam) - preview.pressed.x), dy = abs(GET_Y_LPARAM(lparam) - preview.pressed.y);
             if (dx >= GetSystemMetricsForDpi(SM_CXDRAG, GetDpiForWindow(hwnd)) ||
                 dy >= GetSystemMetricsForDpi(SM_CYDRAG, GetDpiForWindow(hwnd))) {
@@ -284,6 +288,10 @@ RECT PreviewImageScreenRect() {
 void PreviewDragResult(bool accepted) {
     if (accepted && preview.hideAfterDrag) { DismissPreview(); return; }
     preview.dragStatus = accepted ? tr("screen.preview.012") : tr("screen.preview.013");
+    if (preview.window) InvalidateRect(preview.window, nullptr, FALSE);
+}
+void PreviewCopyResult(bool copied) {
+    preview.dragStatus = copied ? tr("screen.share.copied") : tr("screen.share.copy_failed");
     if (preview.window) InvalidateRect(preview.window, nullptr, FALSE);
 }
 void HidePreview() {

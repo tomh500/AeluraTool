@@ -25,6 +25,7 @@
 - `migration_tests.cpp`：迁移、取消和冲突保护，以及资源语言、搜索和快捷键失败回滚。
 - `check_i18n.py`：中英文资源键及静态引用检查。
 - `smoke_capture.py`：截图进程通信和宿主 Job 生命周期检查。
+- `CaptureSharingTests.vcxproj`、`image_sharing_tests.cpp`：独立验证未保存图片的 PNG/DIB/DIBV5 像素、临时 PNG 拖放数据、文件保留和缓存清理；不会改写系统剪贴板。完整测试脚本会执行它。
 
 新增测试文件时在 `CoreTests.vcxproj` 添加 `ClCompile`，并在 `test_main.cpp` 注册测试函数；断言失败抛出异常即可。不要用 `assert` 检查关键结果，以免 Release 配置关闭断言。
 

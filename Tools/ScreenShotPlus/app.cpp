@@ -4,6 +4,7 @@
 #include "Resource.h"
 #include "capture.h"
 #include "storage.h"
+#include "sharing.h"
 #include "preview.h"
 #include "config.h"
 #include "settings.h"
@@ -14,6 +15,7 @@
 #include "instance.h"
 #include "visual_effects.h"
 #include "launch_scene.h"
+#include <thread>
 using namespace std;
 using namespace Gdiplus;
 namespace {
@@ -35,7 +37,7 @@ namespace {
         bool exiting = false;
         UINT taskbarCreated = 0;
         unique_ptr<Bitmap> latest, pending;
-        filesystem::path latestFile;
+        filesystem::path latestFile, shareFile;
         POINT latestPoint{}, pendingPoint{};
         RECT latestOrigin{}, pendingOrigin{};
         bool restorePreview = false;
@@ -109,24 +111,28 @@ namespace {
         if (app.latest) ShowPreview(app.latest.get(), app.latestFile, app.latestPoint, app.config.previewSeconds, captured ? app.latestOrigin : RECT{});
         else Notice(tr("screen.app.002"));
     }
+    void CopyAndPreview(bool captured = false) {
+        const bool copied = app.latest && CopyImageToClipboard(*app.latest, app.panel);
+        LatestPreview(captured); PreviewCopyResult(copied);
+    }
     void SavePending() {
         if (!app.pending || app.phase != App::Idle) return;
         if (app.config.manualSaveOnly) {
-            HidePreview(); app.latest = move(app.pending); app.latestFile.clear();
+            HidePreview(); app.latest = move(app.pending); app.latestFile.clear(); app.shareFile.clear();
             app.latestPoint = app.pendingPoint; app.latestOrigin = app.pendingOrigin;
             app.notice = tr("screen.app.003");
-            ShowWindow(app.panel, SW_HIDE); LatestPreview(true); return;
+            ShowWindow(app.panel, SW_HIDE); CopyAndPreview(true); return;
         }
         app.phase = App::Saving;
         filesystem::path file; wstring error;
         const bool ok = SavePng(*app.pending, app.config.folder, file, error);
         app.phase = App::Idle;
         if (!ok) { Notice(error); return; }
-        HidePreview(); app.latest = move(app.pending); app.latestFile = move(file);
+        HidePreview(); app.latest = move(app.pending); app.latestFile = move(file); app.shareFile.clear();
         app.latestPoint = app.pendingPoint;
         app.latestOrigin = app.pendingOrigin;
         app.notice = tr("screen.app.004");
-        ShowWindow(app.panel, SW_HIDE); LatestPreview(true);
+        ShowWindow(app.panel, SW_HIDE); CopyAndPreview(true);
     }
     void StartCapture() {
         if (app.phase != App::Idle || SettingsVisible() || app.exiting) return;
@@ -151,14 +157,22 @@ namespace {
         }
     }
     void DragLatest() {
-        if (app.phase != App::Idle || !app.latest || app.latestFile.empty() || SettingsVisible()) return;
+        if (app.phase != App::Idle || !app.latest || SettingsVisible() || app.exiting) return;
+        auto file = app.latestFile;
+        if (file.empty()) {
+            error_code ec;
+            if (app.shareFile.empty() || !filesystem::is_regular_file(app.shareFile, ec)) {
+                wstring error;
+                if (!SaveTemporaryImage(*app.latest, ImageShareCache(), app.shareFile, error)) { Notice(error); return; }
+            }
+            file = app.shareFile;
+        }
         app.phase = App::Dragging;
         if (app.config.dragAnimation && ui::DecorativeMotion()) BeginDragVisual(*app.latest, PreviewImageScreenRect());
         DWORD effect = DROPEFFECT_NONE;
-        const HRESULT result = DragFile(app.latestFile, effect, DragVisualFeedback);
+        const HRESULT result = DragFile(file, effect, DragVisualFeedback);
         const bool accepted = result == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY;
-        EndDragVisual(accepted); PreviewDragResult(accepted);
-        app.phase = App::Idle;
+        EndDragVisual(accepted); app.phase = App::Idle; PreviewDragResult(accepted);
         if (FAILED(result)) Notice(tr("screen.app.005"));
         else {
             app.notice = result == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY ? tr("screen.app.006") : tr("screen.app.007");
@@ -181,9 +195,9 @@ namespace {
         if (app.exiting || app.phase != App::Editing || !image) return false;
         filesystem::path file;
         if (!SavePng(*image, app.config.folder, file, error)) return false;
-        HidePreview(); app.latest = move(image); app.latestFile = move(file);
+        HidePreview(); app.latest = move(image); app.latestFile = move(file); app.shareFile.clear();
         app.phase = App::Idle; app.notice = tr("screen.app.008");
-        LatestPreview(); return true;
+        CopyAndPreview(); return true;
     }
     void CancelEdit() {
         if (app.exiting) return;
@@ -191,7 +205,7 @@ namespace {
     }
     void DismissLatest() {
         if (app.phase == App::Idle && app.latestFile.empty()) {
-            app.latest.reset(); app.latestOrigin = {}; app.restorePreview = false;
+            app.latest.reset(); app.shareFile.clear(); app.latestOrigin = {}; app.restorePreview = false;
             app.notice = tr("screen.app.009");
             InvalidateRect(app.panel, nullptr, FALSE);
         }
@@ -404,6 +418,7 @@ namespace {
 }
 int RunApp(HINSTANCE instance, [[maybe_unused]] const filesystem::path& configFile, bool trayStartup, const wchar_t* startupKey) {
     app.instance = instance;
+    jthread shareCleanup([] { CleanupTemporaryImages(ImageShareCache()); });
     app.startupKey = startupKey;
     app.configFile = ui::KnownFolder(FOLDERID_LocalAppData) / L"AeluraTool" / L"ScreenShotPlus" / L"config.json";
     app.allowPortableConfig = false;

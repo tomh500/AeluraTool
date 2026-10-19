@@ -6,6 +6,7 @@ void ConfigurePreview(unsigned corner, unsigned size, bool captureAnimation, boo
 void ShowPreview(Gdiplus::Bitmap* image, const std::filesystem::path& file, POINT point, unsigned seconds = 0, RECT origin = {});
 RECT PreviewImageScreenRect();
 void PreviewDragResult(bool accepted);
+void PreviewCopyResult(bool copied);
 void HidePreview();
 void DismissPreview();
 void TogglePreviewPin();
