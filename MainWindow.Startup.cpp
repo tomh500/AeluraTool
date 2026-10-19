@@ -22,7 +22,7 @@ void MainWindow::PlayStartup(bool preview) {
         if (!preview && !StartupMotionSwitch().IsOn()) return;
         wchar_t lastVersion[32]{};
         GetPrivateProfileStringW(L"Appearance", L"LastAnimatedVersion", L"", lastVersion, 32, config_.c_str());
-        const bool full = preview || std::wstring(lastVersion) != L"1.2";
+        const bool full = preview || std::wstring(lastVersion) != L"1.3.1";
         if (!full) {
             Storyboard board; startupBoard_ = board; DoubleAnimation fade;
             fade.From(.65); fade.To(1); fade.Duration(DurationHelper::FromTimeSpan(std::chrono::milliseconds(180)));
@@ -31,7 +31,7 @@ void MainWindow::PlayStartup(bool preview) {
         }
         if (!preview) {
             std::error_code ec; std::filesystem::create_directories(config_.parent_path(), ec);
-            if (!ec) WritePrivateProfileStringW(L"Appearance", L"LastAnimatedVersion", L"1.2", config_.c_str());
+            if (!ec) WritePrivateProfileStringW(L"Appearance", L"LastAnimatedVersion", L"1.3.1", config_.c_str());
         }
         StartupLayer().Visibility(Visibility::Visible);
         TranslateTransform offset; ContentShell().RenderTransform(offset);
