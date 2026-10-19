@@ -1,4 +1,6 @@
 {
+  "nav.back": "Back",
+  "nav.back_hint": "Go back (Alt+Left)",
   "hash.title": "File hash verifier",
   "hash.description": "Calculate or compare file SHA-256.",
   "hash.open": "Open verifier",

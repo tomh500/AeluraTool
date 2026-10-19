@@ -32,8 +32,22 @@ using aelura::i18n::tr;
         Status().Title(error ? tr("common.error") : tr("app.name"));
         Status().IsOpen(true); Status().Message(message); Status().Severity(error ? InfoBarSeverity::Error : InfoBarSeverity::Success);
     }
-    void MainWindow::Page(int index) {
+    void MainWindow::GoBack() {
+        if (backStack_.empty()) return;
+        auto previous = backStack_.back(); backStack_.pop_back();
+        restoringNavigation_ = true;
+        Search().Text(previous.query);
+        restoringNavigation_ = false;
+        Page(previous.page, previous.category, false);
+        BackButton().Focus(FocusState::Programmatic);
+    }
+    void MainWindow::Page(int index, int category, bool remember) {
+        const int nextCategory = category < 0 ? category_ : category;
+        if (remember && (index != page_ || nextCategory != category_))
+            backStack_.push_back({page_, category_, Search().Text()});
+        category_ = nextCategory;
         page_ = index;
+        BackButton().IsEnabled(!backStack_.empty());
         HomePage().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         KeysPage().Visibility(index == 1 ? Visibility::Visible : Visibility::Collapsed);
         PreferencesPage().Visibility(index == 2 ? Visibility::Visible : Visibility::Collapsed);
@@ -112,13 +126,19 @@ using aelura::i18n::tr;
         Root().Loaded([this](auto const&, auto const&) { PlayStartup(); });
         Root().AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
         Root().AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
-        HomeNav().Click([this](auto const&, auto const&) { category_ = 0; Page(0); });
-        ImageNav().Click([this](auto const&, auto const&) { category_ = 1; Page(0); });
-        FilesNav().Click([this](auto const&, auto const&) { category_ = 2; Page(0); });
-        GamesNav().Click([this](auto const&, auto const&) { category_ = 3; Page(0); });
+        BackButton().Click([this](auto const&, auto const&) { GoBack(); });
+        Input::KeyboardAccelerator backKey;
+        backKey.Key(Windows::System::VirtualKey::Left);
+        backKey.Modifiers(Windows::System::VirtualKeyModifiers::Menu);
+        backKey.Invoked([this](auto const&, Input::KeyboardAcceleratorInvokedEventArgs const& args) { GoBack(); args.Handled(true); });
+        Root().KeyboardAccelerators().Append(backKey);
+        HomeNav().Click([this](auto const&, auto const&) { Page(0, 0); });
+        ImageNav().Click([this](auto const&, auto const&) { Page(0, 1); });
+        FilesNav().Click([this](auto const&, auto const&) { Page(0, 2); });
+        GamesNav().Click([this](auto const&, auto const&) { Page(0, 3); });
         KeysNav().Click([this](auto const&, auto const&) { Page(1); });
         PreferencesNav().Click([this](auto const&, auto const&) { Page(2); });
-        Search().TextChanged([this](auto const&, auto const&) { if (!Search().Text().empty() && page_ != 0) { category_ = 0; Page(0); } else RenderTools(); });
+        Search().TextChanged([this](auto const&, auto const&) { if (restoringNavigation_) return; if (!Search().Text().empty() && page_ != 0) { Page(0, 0); } else RenderTools(); });
         KeySearch().TextChanged([this](auto const&, auto const&) { RenderKeys(); });
         SourceFileButton().Click([this](auto const&, auto const&) { PickPath(true, false); });
         SourceFolderButton().Click([this](auto const&, auto const&) { PickPath(true, true); });

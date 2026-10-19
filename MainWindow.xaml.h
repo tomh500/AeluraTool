@@ -2,6 +2,7 @@
 #include "MainWindow.g.h"
 #include <filesystem>
 #include <atomic>
+#include <vector>
 #include "Integration/HotkeyManager.h"
 #include "Integration/FileHash.h"
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
@@ -18,6 +19,9 @@ namespace winrt::AeluraTool::implementation {
         aelura::hotkeys::Manager hotkeys_;
         HANDLE strike_{};
         int category_{}, page_{};
+        struct NavigationEntry { int page, category; winrt::hstring query; };
+        std::vector<NavigationEntry> backStack_;
+        bool restoringNavigation_{};
         bool moveBusy_{};
         enum class FileTask { None, Migration, Hash };
         FileTask fileTask_{FileTask::None};
@@ -33,7 +37,8 @@ namespace winrt::AeluraTool::implementation {
         std::filesystem::path config_;
         Microsoft::UI::Dispatching::DispatcherQueueTimer timer_{ nullptr };
         UINT pending_{}; unsigned attempts_{};
-        void Page(int index);
+        void Page(int index, int category = -1, bool remember = true);
+        void GoBack();
         void Notice(hstring const& message, bool error = false);
         void RenderTools();
         void ApplyLanguage();

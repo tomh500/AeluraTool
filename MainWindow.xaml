@@ -23,9 +23,10 @@
   </Border>
   <Grid x:Name="ContentShell" Grid.Column="1" Padding="32,28" RowSpacing="18">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-   <Grid ColumnSpacing="24"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="320"/></Grid.ColumnDefinitions>
-    <StackPanel Spacing="5"><TextBlock x:Name="PageTitle" Text="" FontSize="28" FontWeight="SemiBold"/><TextBlock x:Name="PageDescription" Text="" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-    <AutoSuggestBox x:Name="Search" Grid.Column="1" PlaceholderText="" QueryIcon="Find" VerticalAlignment="Center" AutomationProperties.Name=""/>
+   <Grid ColumnSpacing="24" RowSpacing="12"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="320"/></Grid.ColumnDefinitions>
+    <Button x:Name="BackButton" IsEnabled="False" HorizontalAlignment="Left"><StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE72B;" FontSize="14"/><TextBlock x:Name="BackLabel"/></StackPanel></Button>
+    <StackPanel Grid.Row="1" Spacing="5"><TextBlock x:Name="PageTitle" Text="" FontSize="28" FontWeight="SemiBold"/><TextBlock x:Name="PageDescription" Text="" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <AutoSuggestBox x:Name="Search" Grid.Row="1" Grid.Column="1" PlaceholderText="" QueryIcon="Find" VerticalAlignment="Center" AutomationProperties.Name=""/>
    </Grid>
    <InfoBar x:Name="Status" Grid.Row="1" IsOpen="False" IsClosable="True"/>
    <StackPanel Grid.Row="2" Spacing="10">

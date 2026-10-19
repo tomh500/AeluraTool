@@ -1,4 +1,6 @@
 {
+  "nav.back": "返回",
+  "nav.back_hint": "返回上一页 (Alt+←)",
   "hash.title": "文件哈希校验",
   "hash.description": "计算 SHA-256，校验预期值或比较两个文件。",
   "hash.open": "打开哈希校验",

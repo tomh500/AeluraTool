@@ -12,6 +12,9 @@ void MainWindow::ApplyLanguage() {
     localizing_ = true;
     auto themeIndex = ThemeChoice().SelectedIndex(); auto languageIndex = LanguageChoice().SelectedIndex();
     Title(tr("app.title"));
+    BackLabel().Text(tr("nav.back"));
+    Automation::AutomationProperties::SetName(BackButton(), tr("nav.back"));
+    Controls::ToolTipService::SetToolTip(BackButton(), box_value(tr("nav.back_hint")));
     Localized1().Text(tr("app.brand"));
     HomeNav().Content(box_value(tr("nav.all")));
     Localized2().Text(tr("nav.categories"));
@@ -70,6 +73,6 @@ void MainWindow::ApplyLanguage() {
     }
     if (!moveBusy_) { MoveSummary().Text(L""); Status().IsOpen(false); }
     localizing_ = false;
-    Page(page_);
+    Page(page_, -1, false);
 }
 }
