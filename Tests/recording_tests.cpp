@@ -9,6 +9,8 @@
 using namespace aelura::recording;
 namespace fs=std::filesystem;
 void fullscreenTests(fs::path const&);
+void audioTests(fs::path const&,bool);
+void replayConsumeTests(fs::path const&);
 void check(bool value,char const* reason){if(!value)throw std::runtime_error(reason);}
 uint64_t decode(fs::path const& file,bool audio=false){
     media::Ptr<IMFSourceReader> reader;winrt::check_hresult(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader));
@@ -49,7 +51,7 @@ void memoryTests(fs::path const& root){
     check(fs::is_empty(root),"memory stream created files");
     for(auto codec:{Codec::H264,Codec::HEVC})for(auto mode:{Encoder::CPU,Encoder::GPU}){
         if(codec==Codec::HEVC&&mode==Encoder::CPU)continue;
-        Options o;o.directory=root;o.encoder=mode;o.codec=codec;o.bitrate=1500000;auto budget=std::make_shared<media::MemoryBudget>(16*1048576);auto file=std::make_shared<media::MemoryFile>(budget);
+        Options o;o.systemAudio=false;o.directory=root;o.encoder=mode;o.codec=codec;o.bitrate=1500000;auto budget=std::make_shared<media::MemoryBudget>(16*1048576);auto file=std::make_shared<media::MemoryFile>(budget);
         media::Microphone audio(false);audio.rate=48000;audio.channels=2;
         {media::Writer writer(o,320,240,audio,{},nullptr,nullptr,file.get());std::vector<BYTE> pixels(320*240*3/2,128);std::fill(pixels.begin(),pixels.begin()+320*240,BYTE(80));
             for(unsigned frame=0;frame<30;++frame){writer.frame(pixels,LONGLONG(frame)*10000000/30,10000000/30);writer.sound(std::vector<int16_t>(3200),LONGLONG(frame)*10000000/30);}writer.finish();}
@@ -72,8 +74,12 @@ void checkBlueFrame(fs::path const& file){
     const bool correct=size>=320*240*3/2&&abs(int(data[100*320+100])-84)<7&&abs(int(data[320*240+50*320+100])-168)<7&&abs(int(data[320*240+50*320+101])-98)<7;
     buffer->Unlock();check(correct,"native DX12 decoded color/plane packing mismatch");
 }
+void checkWindowBlue(fs::path const& file){
+    media::Ptr<IMFSourceReader> reader;winrt::check_hresult(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader));media::Ptr<IMFMediaType> type;winrt::check_hresult(MFCreateMediaType(&type));winrt::check_hresult(type->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Video));winrt::check_hresult(type->SetGUID(MF_MT_SUBTYPE,MFVideoFormat_NV12));winrt::check_hresult(reader->SetCurrentMediaType(DWORD(MF_SOURCE_READER_FIRST_VIDEO_STREAM),nullptr,type.Get()));winrt::check_hresult(reader->GetCurrentMediaType(DWORD(MF_SOURCE_READER_FIRST_VIDEO_STREAM),&type));UINT32 width{},height{};winrt::check_hresult(MFGetAttributeSize(type.Get(),MF_MT_FRAME_SIZE,&width,&height));unsigned frames=0;
+    for(;;){DWORD flags{};media::Ptr<IMFSample> sample;winrt::check_hresult(reader->ReadSample(DWORD(MF_SOURCE_READER_FIRST_VIDEO_STREAM),0,nullptr,&flags,nullptr,&sample));if(sample){media::Ptr<IMFMediaBuffer> buffer;winrt::check_hresult(sample->ConvertToContiguousBuffer(&buffer));BYTE* data{};DWORD size{};winrt::check_hresult(buffer->Lock(&data,nullptr,&size));bool blue=size>=width*height&&data[size_t(height/2)*width+width/2]>75&&data[size_t(height/2)*width+width/2]<95;buffer->Unlock();check(blue,"DX12 window capture lost blue content or included its red cover");++frames;}if(flags&MF_SOURCE_READERF_ENDOFSTREAM)break;}check(frames>10,"DX12 window capture output is empty");
+}
 void native12Tests(fs::path const& directory){
-    Options options;options.directory=directory;options.encoder=Encoder::GPU;options.performanceBeta=true;options.graphics=Graphics::Direct3D12;options.bitrate=1500000;options.scale=50;
+    Options options;options.systemAudio=false;options.directory=directory;options.encoder=Encoder::GPU;options.performanceBeta=true;options.graphics=Graphics::Direct3D12;options.bitrate=1500000;options.scale=50;
     std::unique_ptr<gpu::Dx12Pipeline> pipeline;
     try{pipeline=std::make_unique<gpu::Dx12Pipeline>(options,RECT{0,0,638,478});}
     catch(winrt::hresult_error const& e){if(e.code()==DXGI_ERROR_UNSUPPORTED){std::cout<<"LIMIT: native DX12 requires a compatible NVIDIA adapter\n";return;}throw;}
@@ -97,7 +103,7 @@ void windowSessionTests(fs::path const& directory){
     auto create=[&](wchar_t const* title,COLORREF color){auto hwnd=CreateWindowExW(WS_EX_TOPMOST,wc.lpszClassName,title,WS_OVERLAPPEDWINDOW,100,150,400,300,nullptr,nullptr,wc.hInstance,nullptr);check(hwnd!=nullptr,"owned window failed");SetWindowLongPtrW(hwnd,GWLP_USERDATA,color);ShowWindow(hwnd,SW_SHOWNORMAL);UpdateWindow(hwnd);return hwnd;};
     windows.target=create(L"Aelura generated blue target",RGB(32,88,160));
     auto pump=[&](auto condition){auto deadline=GetTickCount64()+15000;while(!condition()){check(GetTickCount64()<deadline,"owned session timeout");MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}Sleep(10);}};
-    Options o;o.directory=directory;o.fps=15;o.bitrate=1500000;o.cursor=false;o.encoder=Encoder::GPU;o.performanceBeta=true;
+    Options o;o.systemAudio=false;o.directory=directory;o.fps=15;o.bitrate=1500000;o.cursor=false;o.encoder=Encoder::GPU;o.performanceBeta=true;
     RECT bounds{};GetWindowRect(windows.target,&bounds);
     {gpu::Pipeline pipeline(o,bounds,windows.target);pump([&]{return pipeline.next()!=nullptr;});
         windows.cover=create(L"Aelura generated red cover",RGB(240,20,20));
@@ -121,6 +127,12 @@ void windowSessionTests(fs::path const& directory){
     auto cache12=replay12.snapshot().recovery;area12.stop();replay12.stop(true);pump([&]{return !area12.busy()&&!replay12.busy();});area12.wait();replay12.wait();winrt::check_hresult(area12.snapshot().error);winrt::check_hresult(replay12.snapshot().error);
     check(decode(area12.snapshot().output)>0&&decode(replay12.snapshot().output)>0&&!fs::exists(cache12),"native12 parallel output or cleanup failed");
     std::cout<<"PASS: actual native12 area / parallel replay / export / decoded videos / cleanup\n";
+    windows.target=create(L"Aelura generated DX12 blue window",RGB(32,88,160));GetWindowRect(windows.target,&bounds);Session window12;
+    check(window12.start(o,bounds,false,windows.target),"DX12 window session rejected");pump([&]{winrt::check_hresult(window12.snapshot().error);return window12.snapshot().frames>10;});check(window12.snapshot().nativeDx12&&!window12.snapshot().dx12Fallback,"DX12 window silently fell back");
+    SetWindowPos(windows.target,HWND_BOTTOM,600,200,520,360,SWP_NOACTIVATE);SetWindowPos(windows.cover,HWND_TOPMOST,600,200,520,360,SWP_NOACTIVATE);auto windowFrames=window12.snapshot().frames;pump([&]{winrt::check_hresult(window12.snapshot().error);return window12.snapshot().frames>windowFrames+5;});ShowWindow(windows.target,SW_MINIMIZE);windowFrames=window12.snapshot().frames;pump([&]{winrt::check_hresult(window12.snapshot().error);return window12.snapshot().frames>windowFrames+5;});DestroyWindow(windows.target);windows.target=nullptr;pump([&]{return !window12.busy();});window12.wait();winrt::check_hresult(window12.snapshot().error);checkWindowBlue(window12.snapshot().output);
+    client={30,40,350,230};MapWindowPoints(windows.cover,nullptr,reinterpret_cast<POINT*>(&client),2);
+    auto fallbackOptions=o;fallbackOptions.encoder=Encoder::CPU;fallbackOptions.performanceBeta=false;Session fallback;check(fallback.start(fallbackOptions,client,false),"DX12 compatibility fallback rejected");pump([&]{winrt::check_hresult(fallback.snapshot().error);return fallback.snapshot().frames>5;});check(fallback.snapshot().dx12Fallback&&!fallback.snapshot().nativeDx12,"unavailable DX12 did not report fallback");fallback.stop();pump([&]{return !fallback.busy();});fallback.wait();check(decode(fallback.snapshot().output)>0,"DX12 fallback output is corrupt");
+    std::cout<<"PASS: DX12 WGC window remains blue through cover/move/resize/minimize, closes cleanly; incompatible settings fall back to DX11\n";
     o.replayStorage=ReplayStorage::Memory;o.memoryLimitMB=128;o.directory=directory/L"memory-saved";Session ram;
     check(ram.start(o,client,true),"RAM replay start rejected");pump([&]{winrt::check_hresult(ram.snapshot().error);return ram.snapshot().frames>15;});
     check(ram.snapshot().memoryReplay&&ram.snapshot().cacheBytes>0&&ram.snapshot().cacheBytes<=128*1048576ULL&&ram.snapshot().recovery.empty()&&!fs::exists(o.directory),"RAM replay wrote a directory or failed quota/status checks");
@@ -138,6 +150,8 @@ int wmain(int argc,wchar_t** argv){
     fs::path root=fs::temp_directory_path()/(L"AeluraRecordingTests-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
     try{
         media::Runtime runtime;
+        if(argc==2&&std::wstring(argv[1])==L"--replay-consume-only"){fs::create_directory(root);replayConsumeTests(root);fs::remove_all(root);return 0;}
+        if(argc==2&&std::wstring(argv[1])==L"--audio-loopback-only"){fs::create_directory(root);audioTests(root,true);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--fullscreen-only"){fs::create_directory(root);fullscreenTests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--native12-only"){fs::create_directory(root);native12Tests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--memory-only"){fs::create_directory(root);memoryTests(root/L"memory");fs::remove_all(root);return 0;}
@@ -154,7 +168,8 @@ int wmain(int argc,wchar_t** argv){
             Session recovery;check(recovery.recover(argv[2],argv[3]),"recovery rejected");while(recovery.busy())std::this_thread::sleep_for(std::chrono::milliseconds(10));auto s=recovery.snapshot();winrt::check_hresult(s.error);check(s.state==State::Completed,"recovery failed");std::cout<<"RECOVERED "<<s.output<<"\n";inspect(s.output);return 0;
         }
         check(argc==1,"unknown arguments");check(fs::create_directory(root),"temporary sandbox creation failed");
-        Options o;o.directory=root/L"中文视频";fs::create_directory(o.directory);
+        audioTests(root,false);
+        Options o;o.systemAudio=false;o.directory=root/L"中文视频";fs::create_directory(o.directory);
         auto rejects=[&](Options const& value,RECT r){try{validate(value,r);return false;}catch(...){return true;}};
         validate(o,{0,0,320,240});auto bad=o;bad.fps=0;check(rejects(bad,{0,0,320,240}),"zero fps accepted");bad=o;bad.bitrate=0;check(rejects(bad,{0,0,320,240}),"zero bitrate accepted");check(rejects(o,{0,0,1,240}),"one pixel region accepted");
         RECT r=selectionRect({200,300},{-500,-400},{-100,-100,100,100});check(r.left==-100&&r.top==-100&&r.right==100&&r.bottom==100,"negative-monitor selection failed");

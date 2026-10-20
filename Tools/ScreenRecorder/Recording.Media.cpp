@@ -69,13 +69,15 @@ std::vector<BYTE> Frames::next() {
     }
     return nv12;
 }
-Microphone::Microphone(bool enabled) {
+Microphone::Microphone(bool enabled,bool loopback) {
     if (!enabled) return;
     Ptr<IMMDeviceEnumerator> e; Ptr<IMMDevice> device;
     check_hresult(CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_ALL,IID_PPV_ARGS(&e)));
-    check_hresult(e->GetDefaultAudioEndpoint(eCapture,eCommunications,&device));
+    check_hresult(e->GetDefaultAudioEndpoint(loopback?eRender:eCapture,loopback?eConsole:eCommunications,&device));
+    LPWSTR id{};check_hresult(device->GetId(&id));deviceId=id;CoTaskMemFree(id);
     check_hresult(device->Activate(__uuidof(IAudioClient),CLSCTX_ALL,nullptr,&client));
-    check_hresult(client->GetMixFormat(&format));
+    format=static_cast<WAVEFORMATEX*>(CoTaskMemAlloc(sizeof(WAVEFORMATEX)));if(!format)winrt::throw_hresult(E_OUTOFMEMORY);
+    *format={WAVE_FORMAT_PCM,2,48000,48000*4,4,16,0};
     try {
         const auto tag = format->wFormatTag;
         GUID subtype{}; if (tag == WAVE_FORMAT_EXTENSIBLE) subtype = reinterpret_cast<WAVEFORMATEXTENSIBLE*>(format)->SubFormat;
@@ -83,7 +85,8 @@ Microphone::Microphone(bool enabled) {
             !((tag == WAVE_FORMAT_PCM || subtype == KSDATAFORMAT_SUBTYPE_PCM) && format->wBitsPerSample == 16)) winrt::throw_hresult(MF_E_INVALIDMEDIATYPE);
         channels = std::min(2u,unsigned(format->nChannels)); rate = format->nSamplesPerSec;
         if (!channels || !rate) winrt::throw_hresult(MF_E_INVALIDMEDIATYPE);
-        check_hresult(client->Initialize(AUDCLNT_SHAREMODE_SHARED,0,1000000,0,format,nullptr));
+        const DWORD flags=AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM|AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY|(loopback?AUDCLNT_STREAMFLAGS_LOOPBACK:0);
+        check_hresult(client->Initialize(AUDCLNT_SHAREMODE_SHARED,flags,1000000,0,format,nullptr));
         check_hresult(client->GetService(IID_PPV_ARGS(&capture))); check_hresult(client->Start());
     } catch (...) { CoTaskMemFree(format); format=nullptr; throw; }
 }
@@ -135,7 +138,7 @@ bool hardware(IMFSinkWriter* writer,DWORD stream) {
     return false;
 }
 }
-Writer::Writer(Options const& o,unsigned w,unsigned h,Microphone const& mic,std::filesystem::path const& path,gpu::Pipeline* pipeline,std::unique_ptr<gpu::Encoder> encoder,MemoryFile* memory) : rate(mic.rate),channels(mic.channels),native(std::move(encoder)) {
+Writer::Writer(Options const& o,unsigned w,unsigned h,AudioFormat const& mic,std::filesystem::path const& path,gpu::Pipeline* pipeline,std::unique_ptr<gpu::Encoder> encoder,MemoryFile* memory) : rate(mic.rate),channels(mic.channels),native(std::move(encoder)) {
     if(pipeline)native=pipeline->vendor==0x10de?gpu::nvidia(o,*pipeline):gpu::amd(o,*pipeline);
     Ptr<IMFAttributes> attrs; check_hresult(MFCreateAttributes(&attrs,5));
     check_hresult(attrs->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,o.encoder==Encoder::GPU));

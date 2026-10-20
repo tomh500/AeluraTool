@@ -8,7 +8,7 @@ struct ID3D12Device;
 namespace aelura::recording::gpu {
 template<class T>using Ptr=Microsoft::WRL::ComPtr<T>;
 struct Pipeline {
-    explicit Pipeline(Options const&,RECT,HWND window = nullptr); ~Pipeline();
+    explicit Pipeline(Options const&,RECT,HWND window = nullptr,bool bgraOnly = false); ~Pipeline();
     ID3D11Texture2D* next();
     std::vector<BYTE> readback();
     bool sourceClosed() const;

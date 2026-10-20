@@ -1,4 +1,6 @@
 #include "Recording.Dx12.h"
+#include "Recording.Gpu.h"
+#include <d3d11_4.h>
 #include <dxgi1_4.h>
 #include <d3dcompiler.h>
 #include <winrt/base.h>
@@ -41,18 +43,27 @@ struct Dx12Pipeline::Impl {
     Com<ID3D12RootSignature> root;Com<ID3D12PipelineState> pipeline;Com<ID3D12DescriptorHeap> descriptors;
     Com<ID3D12Resource> upload,source,packed,nv12;Com<ID3D12Fence> fence;HANDLE completion{};UINT64 sequence{};
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT sourceLayout{},planes[2]{};UINT64 sourceBytes{},outputBytes{};
-    HDC screen{},memory{};HBITMAP bitmap{};HGDIOBJ previous{};void* pixels{};
+    std::unique_ptr<Pipeline> capture;
+    Com<ID3D12Resource> shared;Com<ID3D11Texture2D> shared11;
+    Com<ID3D12Fence> sharedFence;Com<ID3D11Fence> sharedFence11;Com<ID3D11DeviceContext4> copyContext;
+    UINT64 copySequence{};
+
     explicit Impl(Dx12Pipeline* p):owner(p){}
     ~Impl(){
         // Drain the queue even if the last frame threw after command submission.
         // Resources and the completion event must outlive all submitted work.
         if(queue&&fence&&completion&&SUCCEEDED(queue->Signal(fence.Get(),++sequence))&&fence->GetCompletedValue()<sequence&&SUCCEEDED(fence->SetEventOnCompletion(sequence,completion)))WaitForSingleObject(completion,5000);
-        if(previous)SelectObject(memory,previous);if(bitmap)DeleteObject(bitmap);if(memory)DeleteDC(memory);if(screen)ReleaseDC(nullptr,screen);if(completion)CloseHandle(completion);
+        if(completion)CloseHandle(completion);
     }
-    void setup(Options const& o,RECT r){
+    void setup(Options const& o,RECT r,HWND window){
         options=o;region=r;sourceWidth=unsigned(r.right-r.left);sourceHeight=unsigned(r.bottom-r.top);owner->width=outputExtent(sourceWidth,o.scale);owner->height=outputExtent(sourceHeight,o.scale);
+        auto captureOptions=o;captureOptions.scale=100;capture=std::make_unique<Pipeline>(captureOptions,r,window,true);
+        if(capture->vendor!=0x10de)winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
+        if(window){owner->width=outputExtent(capture->width,o.scale);owner->height=outputExtent(capture->height,o.scale);}
+        sourceWidth=capture->width;sourceHeight=capture->height;
+        Com<IDXGIDevice> dxgi;Com<IDXGIAdapter> original;check_hresult(capture->device.As(&dxgi));check_hresult(dxgi->GetAdapter(&original));DXGI_ADAPTER_DESC adapterDesc{};check_hresult(original->GetDesc(&adapterDesc));
         Com<IDXGIFactory4> factory;check_hresult(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));Com<IDXGIAdapter1> chosen;
-        for(UINT n=0;;++n){Com<IDXGIAdapter1> candidate;if(factory->EnumAdapters1(n,&candidate)==DXGI_ERROR_NOT_FOUND)break;DXGI_ADAPTER_DESC1 d{};check_hresult(candidate->GetDesc1(&d));if(d.VendorId==0x10de&&SUCCEEDED(D3D12CreateDevice(candidate.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&owner->device)))){chosen=candidate;owner->vendor=d.VendorId;owner->adapter=d.Description;break;}}
+        for(UINT n=0;;++n){Com<IDXGIAdapter1> candidate;if(factory->EnumAdapters1(n,&candidate)==DXGI_ERROR_NOT_FOUND)break;DXGI_ADAPTER_DESC1 d{};check_hresult(candidate->GetDesc1(&d));if(d.AdapterLuid.HighPart==adapterDesc.AdapterLuid.HighPart&&d.AdapterLuid.LowPart==adapterDesc.AdapterLuid.LowPart&&d.VendorId==0x10de&&SUCCEEDED(D3D12CreateDevice(candidate.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&owner->device)))){chosen=candidate;owner->vendor=d.VendorId;owner->adapter=d.Description;break;}}
         if(!chosen)winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
         D3D12_COMMAND_QUEUE_DESC q{};q.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;check_hresult(owner->device->CreateCommandQueue(&q,IID_PPV_ARGS(&queue)));
         check_hresult(owner->device->CreateCommandAllocator(q.Type,IID_PPV_ARGS(&allocator)));check_hresult(owner->device->CreateCommandList(0,q.Type,allocator.Get(),nullptr,IID_PPV_ARGS(&commands)));check_hresult(commands->Close());
@@ -67,29 +78,47 @@ struct Dx12Pipeline::Impl {
         handle.ptr+=owner->device->GetDescriptorHandleIncrementSize(dh.Type);D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};uav.Format=DXGI_FORMAT_R32_TYPELESS;uav.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;uav.Buffer.NumElements=UINT(outputBytes/4);uav.Buffer.Flags=D3D12_BUFFER_UAV_FLAG_RAW;owner->device->CreateUnorderedAccessView(packed.Get(),nullptr,&uav,handle);
         D3D12_DESCRIPTOR_RANGE ranges[2]{};ranges[0]={D3D12_DESCRIPTOR_RANGE_TYPE_SRV,1,0,0,0};ranges[1]={D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,1};D3D12_ROOT_PARAMETER parameters[2]{};parameters[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;parameters[0].DescriptorTable={2,ranges};parameters[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;parameters[1].Constants={0,0,8};D3D12_ROOT_SIGNATURE_DESC signature{2,parameters,0,nullptr,D3D12_ROOT_SIGNATURE_FLAG_NONE};
         Com<ID3DBlob> blob,error;check_hresult(D3D12SerializeRootSignature(&signature,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&error));check_hresult(owner->device->CreateRootSignature(0,blob->GetBufferPointer(),blob->GetBufferSize(),IID_PPV_ARGS(&root)));
-        check_hresult(D3DCompile(compute,sizeof(compute),nullptr,nullptr,nullptr,"main","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&blob,&error));D3D12_COMPUTE_PIPELINE_STATE_DESC state{};state.pRootSignature=root.Get();state.CS={blob->GetBufferPointer(),blob->GetBufferSize()};check_hresult(owner->device->CreateComputePipelineState(&state,IID_PPV_ARGS(&pipeline)));
+        check_hresult(D3DCompile(compute,sizeof(compute),nullptr,nullptr,nullptr,"main","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&blob,&error));D3D12_COMPUTE_PIPELINE_STATE_DESC state{};state.pRootSignature=root.Get();state.CS={blob->GetBufferPointer(),blob->GetBufferSize()};check_hresult(owner->device->CreateComputePipelineState(&state,IID_PPV_ARGS(&pipeline)));bridge();
     }
-    ID3D12Resource* process(std::span<BYTE const> bgra,unsigned stride){
-        if(stride<sourceWidth*4||bgra.size()<size_t(stride)*sourceHeight)winrt::throw_hresult(E_INVALIDARG);
-        BYTE* mapped{};D3D12_RANGE none{0,0};check_hresult(upload->Map(0,&none,reinterpret_cast<void**>(&mapped)));for(unsigned y=0;y<sourceHeight;++y)memcpy(mapped+sourceLayout.Offset+size_t(y)*sourceLayout.Footprint.RowPitch,bgra.data()+size_t(y)*stride,size_t(sourceWidth)*4);upload->Unmap(0,nullptr);
-        check_hresult(allocator->Reset());check_hresult(commands->Reset(allocator.Get(),pipeline.Get()));transition(commands.Get(),source.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);
-        D3D12_TEXTURE_COPY_LOCATION from{};from.pResource=upload.Get();from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=sourceLayout;D3D12_TEXTURE_COPY_LOCATION to{};to.pResource=source.Get();to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;commands->CopyTextureRegion(&to,0,0,0,&from,nullptr);transition(commands.Get(),source.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    ID3D12Resource* process(std::span<BYTE const> bgra,unsigned stride,ID3D12Resource* gpuInput=nullptr){
+        if(!gpuInput&&(stride<sourceWidth*4||bgra.size()<size_t(stride)*sourceHeight))winrt::throw_hresult(E_INVALIDARG);
+        if(!gpuInput){BYTE* mapped{};D3D12_RANGE none{0,0};check_hresult(upload->Map(0,&none,reinterpret_cast<void**>(&mapped)));for(unsigned y=0;y<sourceHeight;++y)memcpy(mapped+sourceLayout.Offset+size_t(y)*sourceLayout.Footprint.RowPitch,bgra.data()+size_t(y)*stride,size_t(sourceWidth)*4);upload->Unmap(0,nullptr);}
+        check_hresult(allocator->Reset());check_hresult(commands->Reset(allocator.Get(),pipeline.Get()));
+        D3D12_TEXTURE_COPY_LOCATION from{},to{};
+        if(gpuInput){transition(commands.Get(),gpuInput,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
+        else {
+            transition(commands.Get(),source.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);
+            from.pResource=upload.Get();from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=sourceLayout;to.pResource=source.Get();to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;commands->CopyTextureRegion(&to,0,0,0,&from,nullptr);transition(commands.Get(),source.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        }
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};srv.Format=DXGI_FORMAT_B8G8R8A8_UNORM;srv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;srv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;srv.Texture2D.MipLevels=1;
+        owner->device->CreateShaderResourceView(gpuInput?gpuInput:source.Get(),&srv,descriptors->GetCPUDescriptorHandleForHeapStart());
         ID3D12DescriptorHeap* heaps[]{descriptors.Get()};commands->SetDescriptorHeaps(1,heaps);commands->SetComputeRootSignature(root.Get());commands->SetComputeRootDescriptorTable(0,descriptors->GetGPUDescriptorHandleForHeapStart());UINT constants[]{sourceWidth,sourceHeight,owner->width,owner->height,planes[0].Footprint.RowPitch,UINT(planes[1].Offset),UINT(options.scaling),0};commands->SetComputeRoot32BitConstants(1,8,constants,0);commands->Dispatch((owner->width+63)/64,(owner->height+7)/8,1);
         transition(commands.Get(),packed.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);transition(commands.Get(),nv12.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
-        for(UINT plane=0;plane<2;++plane){from.pResource=packed.Get();from.PlacedFootprint=planes[plane];to.pResource=nv12.Get();to.SubresourceIndex=plane;commands->CopyTextureRegion(&to,0,0,0,&from,nullptr);}
-        transition(commands.Get(),nv12.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);transition(commands.Get(),packed.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);check_hresult(commands->Close());ID3D12CommandList* lists[]{commands.Get()};queue->ExecuteCommandLists(1,lists);check_hresult(queue->Signal(fence.Get(),++sequence));
+        for(UINT plane=0;plane<2;++plane){from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;from.pResource=packed.Get();from.PlacedFootprint=planes[plane];to.pResource=nv12.Get();to.SubresourceIndex=plane;commands->CopyTextureRegion(&to,0,0,0,&from,nullptr);}
+        transition(commands.Get(),nv12.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);transition(commands.Get(),packed.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);if(gpuInput)transition(commands.Get(),gpuInput,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);check_hresult(commands->Close());ID3D12CommandList* lists[]{commands.Get()};queue->ExecuteCommandLists(1,lists);check_hresult(queue->Signal(fence.Get(),++sequence));
         if(fence->GetCompletedValue()<sequence){check_hresult(fence->SetEventOnCompletion(sequence,completion));if(WaitForSingleObject(completion,5000)!=WAIT_OBJECT_0)winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_TIMEOUT));}
         check_hresult(owner->device->GetDeviceRemovedReason());return nv12.Get();
     }
-    ID3D12Resource* next(){
-        if(!screen){screen=GetDC(nullptr);memory=CreateCompatibleDC(screen);BITMAPINFO info{};info.bmiHeader={sizeof(BITMAPINFOHEADER),LONG(sourceWidth),-LONG(sourceHeight),1,32,BI_RGB};bitmap=CreateDIBSection(screen,&info,DIB_RGB_COLORS,&pixels,nullptr,0);if(!screen||!memory||!bitmap)winrt::throw_hresult(E_OUTOFMEMORY);previous=SelectObject(memory,bitmap);}
-        if(!BitBlt(memory,0,0,sourceWidth,sourceHeight,screen,region.left,region.top,SRCCOPY|CAPTUREBLT))winrt::throw_last_error();
-        if(options.cursor){CURSORINFO c{sizeof(c)};if(GetCursorInfo(&c)&&c.flags==CURSOR_SHOWING){ICONINFO i{};if(GetIconInfo(c.hCursor,&i)){DrawIconEx(memory,c.ptScreenPos.x-region.left-i.xHotspot,c.ptScreenPos.y-region.top-i.yHotspot,c.hCursor,0,0,0,nullptr,DI_NORMAL);if(i.hbmColor)DeleteObject(i.hbmColor);if(i.hbmMask)DeleteObject(i.hbmMask);}}}GdiFlush();
-        return process({static_cast<BYTE const*>(pixels),size_t(sourceWidth)*sourceHeight*4},sourceWidth*4);
+    void bridge(){
+        if(!shared){
+            auto h=heap(D3D12_HEAP_TYPE_DEFAULT);auto d=texture(sourceWidth,sourceHeight,DXGI_FORMAT_B8G8R8A8_UNORM);d.Flags=D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS|D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+            check_hresult(owner->device->CreateCommittedResource(&h,D3D12_HEAP_FLAG_SHARED,&d,D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&shared)));
+            Com<ID3D11Device5> device11;check_hresult(capture->device.As(&device11));Com<ID3D11DeviceContext> context;capture->device->GetImmediateContext(&context);check_hresult(context.As(&copyContext));
+            HANDLE handle{};check_hresult(owner->device->CreateSharedHandle(shared.Get(),nullptr,GENERIC_ALL,nullptr,&handle));auto hr=device11->OpenSharedResource1(handle,IID_PPV_ARGS(&shared11));CloseHandle(handle);if(FAILED(hr))throw winrt::hresult_error(hr,L"DX11 opening shared DX12 texture");
+            check_hresult(owner->device->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&sharedFence)));check_hresult(owner->device->CreateSharedHandle(sharedFence.Get(),nullptr,GENERIC_ALL,nullptr,&handle));hr=device11->OpenSharedFence(handle,IID_PPV_ARGS(&sharedFence11));CloseHandle(handle);if(FAILED(hr))throw winrt::hresult_error(hr,L"DX11 opening shared DX12 fence");
+        }
     }
+    ID3D12Resource* next(){
+        auto frame=capture->next();if(!frame)return nullptr;
+        copyContext->CopyResource(shared11.Get(),frame);check_hresult(copyContext->Signal(sharedFence11.Get(),++copySequence));copyContext->Flush();check_hresult(queue->Wait(sharedFence.Get(),copySequence));
+        return process({},0,shared.Get());
+    }
+
 };
-Dx12Pipeline::Dx12Pipeline(Options const& o,RECT r):impl_(std::make_unique<Impl>(this)){std::lock_guard lock(dx12LifetimeMutex());validate(o,r);impl_->setup(o,r);}
+Dx12Pipeline::Dx12Pipeline(Options const& o,RECT r,HWND window):impl_(std::make_unique<Impl>(this)){std::lock_guard lock(dx12LifetimeMutex());validate(o,r);impl_->setup(o,r,window);}
 Dx12Pipeline::~Dx12Pipeline(){std::lock_guard lock(dx12LifetimeMutex());impl_.reset();device.Reset();}
 ID3D12Resource* Dx12Pipeline::next(){return impl_->next();}
+bool Dx12Pipeline::captureWaiting()const{return impl_->capture->captureWaiting();}
+bool Dx12Pipeline::sourceClosed()const{return impl_->capture->sourceClosed();}
 ID3D12Resource* Dx12Pipeline::process(std::span<BYTE const> data,unsigned stride){return impl_->process(data,stride);}
 }

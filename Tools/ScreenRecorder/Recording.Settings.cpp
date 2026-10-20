@@ -23,6 +23,7 @@ Options load(std::filesystem::path const& file) {
         o.replaySeconds = j.at("replaySeconds"); o.codec = static_cast<Codec>(j.at("codec").get<int>());
         o.encoder = static_cast<Encoder>(j.at("encoder").get<int>()); o.scaling = static_cast<Scaling>(j.at("scaling").get<int>());
         o.microphone = j.at("microphone"); o.cursor = j.at("cursor"); o.performanceBeta=j.value("performanceBeta",false);
+        o.systemAudio=j.value("systemAudio",true);
         o.replayEnabled=j.value("replayEnabled",false);
         o.graphics=static_cast<Graphics>(j.value("graphics",0));
         o.replayStorage=static_cast<ReplayStorage>(j.value("replayStorage",0));o.memoryLimitMB=j.value("memoryLimitMB",1024u);
@@ -34,7 +35,7 @@ void save(std::filesystem::path const& file, Options const& o) {
     validate(o, {0,0,1920,1080});
     json j{{"fps",o.fps},{"bitrate",o.bitrate},{"scale",o.scale},{"replaySeconds",o.replaySeconds},
         {"codec",static_cast<int>(o.codec)},{"encoder",static_cast<int>(o.encoder)},
-        {"scaling",static_cast<int>(o.scaling)},{"microphone",o.microphone},{"cursor",o.cursor},{"performanceBeta",o.performanceBeta},
+        {"scaling",static_cast<int>(o.scaling)},{"microphone",o.microphone},{"systemAudio",o.systemAudio},{"cursor",o.cursor},{"performanceBeta",o.performanceBeta},
         {"directory",winrt::to_string(o.directory.wstring())},{"replayEnabled",o.replayEnabled},{"graphics",int(o.graphics)},
         {"replayStorage",int(o.replayStorage)},{"memoryLimitMB",o.memoryLimitMB}};
     std::filesystem::create_directories(file.parent_path()); auto temp = file; temp += L".tmp";

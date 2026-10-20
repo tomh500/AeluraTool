@@ -23,7 +23,7 @@ struct Options {
     Codec codec{Codec::H264}; Encoder encoder{Encoder::CPU}; Scaling scaling{Scaling::Cubic};
     Graphics graphics{Graphics::Direct3D11};
     ReplayStorage replayStorage{ReplayStorage::Disk};unsigned memoryLimitMB{1024};
-    bool microphone{}, cursor{true}, performanceBeta{}, replayEnabled{};
+    bool microphone{}, systemAudio{true}, cursor{true}, performanceBeta{}, replayEnabled{};
     std::filesystem::path directory;
 };
 struct Snapshot {
@@ -34,7 +34,8 @@ struct Snapshot {
     unsigned savedGeneration{};
     int optimizedVendor{};bool cuda{};HRESULT optimizationError{S_OK};std::wstring adapter;
     bool windowCapture{}, windowMinimized{}; DWORD processId{}; std::wstring windowTitle;
-    bool nativeDx12{},captureWaiting{};
+    bool nativeDx12{},dx12Fallback{},captureWaiting{};
+    HRESULT systemAudioError{S_OK},microphoneError{S_OK};
     bool memoryReplay{},memoryLimited{};uint64_t cacheBytes{};
 };
 Options load(std::filesystem::path const& file);

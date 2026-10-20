@@ -8,13 +8,16 @@
 #include <winrt/Windows.UI.ViewManagement.h>
 #include <winrt/Windows.Foundation.Numerics.h>
 #include <chrono>
+#include <shlobj.h>
 
 namespace aelura::recording {
 using namespace winrt; using namespace Microsoft::UI::Xaml;
 struct Notification::Impl : std::enable_shared_from_this<Impl> {
     HWND main{}, hwnd{}; Window window{nullptr};
     Controls::Grid root{nullptr}; Controls::TextBlock title, detail; Controls::ProgressRing progress;
+    Controls::Button open;std::filesystem::path output;
     bool saving{}, visible{}, leaving{}, closing{};
+    uint64_t savedGeneration{};
     std::chrono::steady_clock::time_point hideAt{}, closeAt{};
     explicit Impl(HWND h) : main(h) {}
     void create() {
@@ -27,9 +30,14 @@ struct Notification::Impl : std::enable_shared_from_this<Impl> {
         root = Markup::XamlReader::Load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="14" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="10"/>)").as<Controls::Grid>();
         Controls::StackPanel row; row.Orientation(Controls::Orientation::Horizontal); row.Spacing(12);
         progress.Width(22); progress.Height(22); row.Children().Append(progress);
-        Controls::StackPanel text; text.Spacing(5); text.Width(288); title.FontSize(15); detail.FontSize(12); detail.TextTrimming(TextTrimming::CharacterEllipsis); text.Children().Append(title); text.Children().Append(detail); row.Children().Append(text); root.Children().Append(row);
+        Controls::StackPanel text; text.Spacing(5); text.Width(288); title.FontSize(15); detail.FontSize(12); detail.TextTrimming(TextTrimming::CharacterEllipsis); text.Children().Append(title); text.Children().Append(detail); row.Children().Append(text);open.Content(row);open.Padding({0,0,0,0});open.HorizontalContentAlignment(HorizontalAlignment::Stretch);root.Children().Append(open);
         window.Content(root);
         auto weak = weak_from_this();
+        open.Click([weak](auto const&,auto const&){if(auto self=weak.lock();self&&!self->output.empty()){
+            PIDLIST_ABSOLUTE item{};auto hr=SHParseDisplayName(self->output.c_str(),nullptr,&item,0,nullptr);
+            if(SUCCEEDED(hr)){hr=SHOpenFolderAndSelectItems(item,0,nullptr,0);CoTaskMemFree(item);}
+            if(FAILED(hr))diagnostics::failure("replay.notification.open",hr);
+        }});
         window.Closed([weak](auto const&, WindowEventArgs const& e) { if (auto self = weak.lock(); self && !self->closing) { e.Handled(true); ShowWindow(self->hwnd, SW_HIDE); self->visible = false; } });
         SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
     }
@@ -47,11 +55,15 @@ struct Notification::Impl : std::enable_shared_from_this<Impl> {
     void update(Snapshot const& s, ElementTheme theme) {
         const auto now = std::chrono::steady_clock::now();
         const bool begin = s.replay && s.saving && !saving;
-        const bool end = saving && !s.saving;
+        const bool completed = s.replay && s.savedGeneration > savedGeneration;
+        const bool end = (saving && !s.saving) || completed;
+        savedGeneration = s.savedGeneration;
         if (begin || end) {
             create(); root.RequestedTheme(theme); window.Title(i18n::tr("record.save_replay"));
             title.Text(i18n::tr(s.saving ? "record.saving" : FAILED(s.error) ? (s.error == E_ABORT ? "record.save_canceled" : "record.save_failed") : "record.replay_saved"));
             detail.Text(s.saving ? i18n::tr("record.replay_saving_hint") : s.output.filename().wstring());
+            output=!s.saving&&SUCCEEDED(s.error)?s.output:std::filesystem::path{};open.IsEnabled(!output.empty());
+            Controls::ToolTipService::SetToolTip(open,box_value(i18n::tr("record.show_file")));
             progress.IsActive(s.saving); progress.Visibility(s.saving ? Visibility::Visible : Visibility::Collapsed);
             if (!visible || leaving) {
                 MONITORINFO mi{sizeof(mi)}; GetMonitorInfoW(MonitorFromWindow(main, MONITOR_DEFAULTTONEAREST), &mi);
@@ -60,7 +72,7 @@ struct Notification::Impl : std::enable_shared_from_this<Impl> {
                 ShowWindow(hwnd, SW_SHOWNOACTIVATE); SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                 animate(true); visible = true; leaving = false;
             }
-            hideAt = s.saving ? std::chrono::steady_clock::time_point::max() : now + std::chrono::seconds(3);
+            hideAt = s.saving ? std::chrono::steady_clock::time_point::max() : now + std::chrono::seconds(8);
         }
         saving = s.replay && s.saving;
         if (window) root.RequestedTheme(theme);

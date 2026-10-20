@@ -29,7 +29,7 @@ float4 ps(Vertex v):SV_Target{
 }
 struct Pipeline::Impl {
     Pipeline* owner;Options options;RECT region{},monitor{},originalRegion{},originalMonitor{};
-    std::shared_ptr<DesktopCapture> capture;bool wholeMonitor{},waiting{},converted{};uint64_t generation{};
+    std::shared_ptr<DesktopCapture> capture;bool wholeMonitor{},waiting{},converted{},bgraOnly{};uint64_t generation{};
     Ptr<ID3D11DeviceContext> context;
     Ptr<ID3D11Texture2D> desktop,scaled,nv12,cursor;
     Ptr<ID3D11Texture2D> staging;
@@ -63,18 +63,19 @@ struct Pipeline::Impl {
         check_hresult(owner->device->CreateTexture2D(&d,nullptr,&desktop));check_hresult(owner->device->CreateShaderResourceView(desktop.Get(),nullptr,&desktopView));
         d.Width=owner->width;d.Height=owner->height;d.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
         check_hresult(owner->device->CreateTexture2D(&d,nullptr,&scaled));check_hresult(owner->device->CreateRenderTargetView(scaled.Get(),nullptr,&target));
-        d.Format=DXGI_FORMAT_NV12;check_hresult(owner->device->CreateTexture2D(&d,nullptr,&nv12));
+        d.Format=DXGI_FORMAT_NV12;if(!bgraOnly)check_hresult(owner->device->CreateTexture2D(&d,nullptr,&nv12));
         Ptr<ID3DBlob> blob,error;check_hresult(D3DCompile(shader,sizeof(shader),nullptr,nullptr,nullptr,"vs","vs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&blob,&error));check_hresult(owner->device->CreateVertexShader(blob->GetBufferPointer(),blob->GetBufferSize(),nullptr,&vs));
         check_hresult(D3DCompile(shader,sizeof(shader),nullptr,nullptr,nullptr,"ps","ps_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&blob,&error));check_hresult(owner->device->CreatePixelShader(blob->GetBufferPointer(),blob->GetBufferSize(),nullptr,&ps));
         D3D11_BUFFER_DESC b{};b.ByteWidth=64;b.Usage=D3D11_USAGE_DEFAULT;b.BindFlags=D3D11_BIND_CONSTANT_BUFFER;check_hresult(owner->device->CreateBuffer(&b,nullptr,&constants));
         D3D11_SAMPLER_DESC s{};s.Filter=D3D11_FILTER_MIN_MAG_MIP_LINEAR;s.AddressU=s.AddressV=s.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;s.MaxLOD=D3D11_FLOAT32_MAX;check_hresult(owner->device->CreateSamplerState(&s,&linear));s.Filter=D3D11_FILTER_MIN_MAG_MIP_POINT;check_hresult(owner->device->CreateSamplerState(&s,&point));
-        check_hresult(owner->device.As(&video));check_hresult(context.As(&videoContext));
+        if(!bgraOnly){check_hresult(owner->device.As(&video));check_hresult(context.As(&videoContext));
         D3D11_VIDEO_PROCESSOR_CONTENT_DESC c{};c.InputFrameFormat=D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;c.InputWidth=c.OutputWidth=owner->width;c.InputHeight=c.OutputHeight=owner->height;c.Usage=D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;c.InputFrameRate=c.OutputFrameRate={o.fps,1};
         check_hresult(video->CreateVideoProcessorEnumerator(&c,&enumerator));check_hresult(video->CreateVideoProcessor(enumerator.Get(),0,&processor));
         D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC iv{};iv.ViewDimension=D3D11_VPIV_DIMENSION_TEXTURE2D;check_hresult(video->CreateVideoProcessorInputView(scaled.Get(),enumerator.Get(),&iv,&input));
         D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC ov{};ov.ViewDimension=D3D11_VPOV_DIMENSION_TEXTURE2D;check_hresult(video->CreateVideoProcessorOutputView(nv12.Get(),enumerator.Get(),&ov,&output));
         D3D11_VIDEO_PROCESSOR_COLOR_SPACE rgb{};rgb.RGB_Range=0;rgb.YCbCr_Matrix=0;rgb.Nominal_Range=2;videoContext->VideoProcessorSetStreamColorSpace(processor.Get(),0,&rgb);
         D3D11_VIDEO_PROCESSOR_COLOR_SPACE yuv{};yuv.YCbCr_Matrix=0;yuv.Nominal_Range=1;videoContext->VideoProcessorSetOutputColorSpace(processor.Get(),&yuv);
+        }
         // Make a valid transparent cursor resource even when pointer recording is off.
         BYTE transparent[4]{};D3D11_SUBRESOURCE_DATA init{transparent,4,0};d.Width=d.Height=1;d.Format=DXGI_FORMAT_B8G8R8A8_UNORM;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;check_hresult(owner->device->CreateTexture2D(&d,&init,&cursor));check_hresult(owner->device->CreateShaderResourceView(cursor.Get(),nullptr,&cursorView));
     }
@@ -108,7 +109,7 @@ struct Pipeline::Impl {
             region=monitor={0,0,LONG(current.Width),LONG(current.Height)};
         }else{
         capture->next();waiting=capture->waiting;
-        if(waiting)return converted?nv12.Get():nullptr;
+        if(waiting)return converted?(bgraOnly?scaled.Get():nv12.Get()):nullptr;
         monitor=capture->monitor;
         // Keep the encoder canvas fixed while the game changes display mode.
         if(wholeMonitor)region=monitor;
@@ -123,10 +124,11 @@ struct Pipeline::Impl {
         context->UpdateSubresource(constants.Get(),0,nullptr,values,0,0);auto cb=constants.Get();context->PSSetConstantBuffers(0,1,&cb);auto t=target.Get();context->OMSetRenderTargets(1,&t,nullptr);
         D3D11_VIEWPORT viewport{0,0,float(owner->width),float(owner->height),0,1};context->RSSetViewports(1,&viewport);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);context->VSSetShader(vs.Get(),nullptr,0);context->PSSetShader(ps.Get(),nullptr,0);
         ID3D11ShaderResourceView* textures[]{desktopView.Get(),cursorView.Get()};context->PSSetShaderResources(0,2,textures);ID3D11SamplerState* samplers[]{linear.Get(),point.Get()};context->PSSetSamplers(0,2,samplers);context->Draw(3,0);context->OMSetRenderTargets(0,nullptr,nullptr);ID3D11ShaderResourceView* empty[]{nullptr,nullptr};context->PSSetShaderResources(0,2,empty);
+        if(bgraOnly){context->Flush();converted=true;return scaled.Get();}
         D3D11_VIDEO_PROCESSOR_STREAM stream{};stream.Enable=TRUE;stream.pInputSurface=input.Get();check_hresult(videoContext->VideoProcessorBlt(processor.Get(),output.Get(),0,1,&stream));context->Flush();converted=true;return nv12.Get();
     }
 };
-Pipeline::Pipeline(Options const& o,RECT r,HWND window):impl_(std::make_unique<Impl>(this)){impl_->setup(o,r,window);}
+Pipeline::Pipeline(Options const& o,RECT r,HWND window,bool bgraOnly):impl_(std::make_unique<Impl>(this)){impl_->bgraOnly=bgraOnly;impl_->setup(o,r,window);}
 Pipeline::~Pipeline()=default;
 ID3D11Texture2D* Pipeline::next(){std::unique_lock<std::recursive_mutex> lock;if(impl_->capture)lock=std::unique_lock(impl_->capture->mutex);return impl_->next();}
 bool Pipeline::sourceClosed()const{return impl_->window&&impl_->window->closed();}

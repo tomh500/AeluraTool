@@ -1,5 +1,18 @@
 # 验证记录
 
+## DX12 兼容捕获、系统声音与消费式重放保存（2026-10-21，1.6.0.0）
+
+- 将旧纯 DX12 的 GDI 桌面取帧替换为 DXGI/WGC D3D11 捕获、共享 BGRA 纹理和共享 fence，再交给原生 D3D12 计算及 NVENC D3D12。实时路径没有 CPU BGRA 读回再上传，也不使用 D3D11On12；仍有 GPU 复制与同步，没有性能基准，不能声称更快或零复制。不兼容初始化自动回退 DX11，并显示实际状态；AMD 原生 DX12 尚未实现。技术原因及公开 SDK 说明已更新至 Docs/RecordingPerformance.md。
+- 最终 Release / Debug x64 全解决方案构建通过，两套完整回归通过，包括迁移/哈希、搜索分类、快捷键注册及保存失败回滚、截图通信/Job、图片分享和录屏编码/解码。540 对语言资源、518 个静态引用检查通过。日志：artifacts/recording-enhanced-build-*.txt、recording-enhanced-tests-*.txt。文件符号链接样本仍因权限 1314 明确跳过。
+- 两套 --fullscreen-only 实测生成的独占全屏、1280×720 模式变化及返回桌面，核对恢复后的蓝/黄色实际像素。CPU、普通 GPU、厂商 DX11、实际原生 DX12 四种模式均并行自由录制与内存重放，保存两次、解码新旧颜色并正常释放；DX12 明确断言未回退。日志：artifacts/recording-interop-fullscreen-*.txt。测试预热两秒，退出全屏时恢复测试窗口尺寸，避免测试窗口变小后误采桌面。
+- 两套 --window-session-only 验证窗口遮挡、移动、调整尺寸、最小化、源窗口关闭，以及并行录制、保存和资源清理；新增 DX12 WGC 逐帧解码中心蓝色检查和不兼容选项回退 DX11，均通过。日志：artifacts/recording-enhanced-window-*.txt。
+- 两套 --replay-consume-only 验证磁盘/内存只在最终成片提交成功后移除该次快照，保留保存期间新增片段；磁盘旧临时文件消失，内存额度回收，第二段仅 31 帧、第一段 91～92 帧，成片在停止清理后仍存在。失败导出保留历史并允许重试。日志：artifacts/recording-enhanced-consume-*.txt；Docs/ReplayStorage.md 已更新语义。
+- 新增系统声音缺省 true、旧配置缺省 true、显式关闭持久化、饱和混音和静音无音轨检查。两套 --audio-loopback-only 使用测试生成的 880 Hz 声音，从 44.1 kHz 播放流经 WASAPI loopback 转成 48 kHz PCM，再解码 MP4 AAC 验证音调；实际 DX12 内存重放 Session 同样保存后解码验证系统声音，并消费缓存、正常停止。全部关闭真实麦克风；日志：artifacts/recording-enhanced-audio-*.txt。
+- 1.6.0.0 已注册到版本化 AppX-1.6.0.0，部署 exe 与最终 Release 构建 SHA256 一致。Computer Use 实查浅色中文、深色英语、新声音控件、DX12 提示、图像分类及 replay 搜索。系统声音开关立即写入配置；测试参数下 DX12 重放实际运行，三次保存输出到自动创建的临时目录，保存后缓存重新增长。重放开启时正常退出，再启动恢复中文自动主题。
+- 验收前重新备份当前用户配置，保留用户此时已关闭的 replayEnabled=false、120 fps、15 Mbps、1024 MiB 内存缓存、麦克风选择、自定义 C:\Users\jingy\Vedios 和关闭到托盘偏好；仅按本次要求设置优先 DX12 与 systemAudio=true。hotkeys.ini 恢复后与验收前备份哈希一致，Ctrl+Alt+F9 保留。没有将临时输出目录留作用户保存路径。
+- 保存成功通知加入原生按钮，以 SHOpenFolderAndSelectItems 打开实际成片并选中，保存中/失败时禁用；同时用 savedGeneration 检测快于 UI 轮询的完成，成功提示保留八秒。自动化工具未列出该排除捕获的工具浮层，因此没有完成实际通知点击及 Explorer 选中结果的 UI 验收，不能将此项记作实测通过。
+- 尚未实测 CS2 Vulkan 对局、保护内容、HDR、多显卡、拔屏、驱动重置、长时间音画同步及游戏帧时间。生成的 D3D11 独占全屏测试不能替代 CS2 Vulkan 成片验证。默认播放设备切换/失效重连经代码处理但未操作系统音频设备实测；独占或受保护音频、路由到其他输出设备的应用声音不保证捕获。现有 BUILD_AND_DISTRIBUTE.md 用户空行修改保留，不纳入本轮提交；未推送。
+
 ## 全屏切换恢复（2026-10-20～21，1.5.2.0）
 
 - 修复 0x887A0026（DXGI_ERROR_ACCESS_LOST）导致重放终止：共享显示器采集、重新枚举输出并重建接口，处理首帧超时及暂时不可用，保持编码画布与已有缓存。普通 CPU/GPU 编码也使用默认 DX11 采集，厂商编码初始化回退不再丢弃该采集管线。

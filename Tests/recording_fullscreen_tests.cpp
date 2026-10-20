@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <map>
 
 using namespace aelura::recording;
 namespace {
@@ -34,7 +35,7 @@ struct Pattern {
         winrt::check_hresult(swap->GetBuffer(0,IID_PPV_ARGS(&texture)));winrt::check_hresult(device->CreateRenderTargetView(texture.Get(),nullptr,&target));
         const float blue[]{32.f/255,88.f/255,160.f/255,1},yellow[]{240.f/255,220.f/255,32.f/255,1};context->ClearRenderTargetView(target.Get(),bright?yellow:blue);winrt::check_hresult(swap->Present(1,0));
     }
-    void fullscreen(bool on){std::cout<<"CHECK: exclusive="<<on<<std::endl;winrt::check_hresult(swap->SetFullscreenState(on?TRUE:FALSE,on?output.Get():nullptr));BOOL actual{};winrt::check_hresult(swap->GetFullscreenState(&actual,nullptr));require((actual!=FALSE)==on,"exclusive fullscreen was not entered");}
+    void fullscreen(bool on){if(on){auto foreground=GetForegroundWindow();auto thread=foreground?GetWindowThreadProcessId(foreground,nullptr):0;bool attached=thread&&thread!=GetCurrentThreadId()&&AttachThreadInput(GetCurrentThreadId(),thread,TRUE);SetForegroundWindow(hwnd);SetFocus(hwnd);if(attached)AttachThreadInput(GetCurrentThreadId(),thread,FALSE);}std::cout<<"CHECK: exclusive="<<on<<std::endl;winrt::check_hresult(swap->SetFullscreenState(on?TRUE:FALSE,on?output.Get():nullptr));BOOL actual{};winrt::check_hresult(swap->GetFullscreenState(&actual,nullptr));require((actual!=FALSE)==on,"exclusive fullscreen was not entered");if(!on){SetWindowPos(hwnd,HWND_TOPMOST,bounds.left,bounds.top,bounds.right-bounds.left,bounds.bottom-bounds.top,SWP_SHOWWINDOW);winrt::check_hresult(swap->ResizeBuffers(2,UINT(bounds.right-bounds.left),UINT(bounds.bottom-bounds.top),DXGI_FORMAT_R8G8B8A8_UNORM,DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));}}
     bool resize(){
         UINT count{};winrt::check_hresult(output->GetDisplayModeList(DXGI_FORMAT_R8G8B8A8_UNORM,0,&count,nullptr));std::vector<DXGI_MODE_DESC> modes(count);winrt::check_hresult(output->GetDisplayModeList(DXGI_FORMAT_R8G8B8A8_UNORM,0,&count,modes.data()));
         for(auto const& mode:modes)if(mode.Width>=1280&&mode.Height>=720&&mode.Width<UINT(bounds.right-bounds.left)&&mode.Height<UINT(bounds.bottom-bounds.top)){
@@ -47,12 +48,13 @@ struct Pattern {
 bool videoHasBothColors(std::filesystem::path const& file){
     media::Ptr<IMFSourceReader> reader;winrt::check_hresult(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader));media::Ptr<IMFMediaType> type;winrt::check_hresult(MFCreateMediaType(&type));winrt::check_hresult(type->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Video));winrt::check_hresult(type->SetGUID(MF_MT_SUBTYPE,MFVideoFormat_NV12));winrt::check_hresult(reader->SetCurrentMediaType(DWORD(MF_SOURCE_READER_FIRST_VIDEO_STREAM),nullptr,type.Get()));
     winrt::check_hresult(reader->GetCurrentMediaType(DWORD(MF_SOURCE_READER_FIRST_VIDEO_STREAM),&type));UINT32 width{},height{};winrt::check_hresult(MFGetAttributeSize(type.Get(),MF_MT_FRAME_SIZE,&width,&height));bool blue=false,yellow=false;LONGLONG previous=-1;
-    for(;;){DWORD flags{};LONGLONG time{};media::Ptr<IMFSample> sample;winrt::check_hresult(reader->ReadSample(DWORD(MF_SOURCE_READER_FIRST_VIDEO_STREAM),0,nullptr,&flags,&time,&sample));if(sample){require(time>previous,"fullscreen video timestamp did not increase");previous=time;media::Ptr<IMFMediaBuffer> buffer;winrt::check_hresult(sample->ConvertToContiguousBuffer(&buffer));BYTE* data{};DWORD size{};winrt::check_hresult(buffer->Lock(&data,nullptr,&size));if(size>=width*height){auto y=data[size_t(height/2)*width+width/2];blue|=y>75&&y<95;yellow|=y>185&&y<220;}buffer->Unlock();}if(flags&MF_SOURCE_READERF_ENDOFSTREAM)break;}
-    return blue&&yellow;
+    std::map<unsigned,unsigned> histogram;
+    for(;;){DWORD flags{};LONGLONG time{};media::Ptr<IMFSample> sample;winrt::check_hresult(reader->ReadSample(DWORD(MF_SOURCE_READER_FIRST_VIDEO_STREAM),0,nullptr,&flags,&time,&sample));if(sample){require(time>previous,"fullscreen video timestamp did not increase");previous=time;media::Ptr<IMFMediaBuffer> buffer;winrt::check_hresult(sample->ConvertToContiguousBuffer(&buffer));BYTE* data{};DWORD size{};winrt::check_hresult(buffer->Lock(&data,nullptr,&size));if(size>=width*height){auto y=data[size_t(height/2)*width+width/2];++histogram[y];blue|=y>75&&y<95;yellow|=y>185&&y<220;}buffer->Unlock();}if(flags&MF_SOURCE_READERF_ENDOFSTREAM)break;}
+    if(!blue||!yellow){std::cout<<"COLOR CHECK: blue="<<blue<<" yellow="<<yellow;for(auto [y,count]:histogram)std::cout<<" Y"<<y<<"="<<count;std::cout<<std::endl;}return blue&&yellow;
 }
 }
 void fullscreenTests(std::filesystem::path const& directory){
-    Pattern pattern;Options o;o.directory=directory;o.fps=15;o.bitrate=1500000;o.scale=20;o.cursor=false;o.encoder=Encoder::GPU;o.performanceBeta=true;o.replayStorage=ReplayStorage::Memory;o.memoryLimitMB=128;
+    Pattern pattern;Options o;o.systemAudio=false;o.directory=directory;o.fps=15;o.bitrate=1500000;o.scale=20;o.cursor=false;o.encoder=Encoder::GPU;o.performanceBeta=true;o.replayStorage=ReplayStorage::Memory;o.memoryLimitMB=128;
     unsigned observedLosses=0;
     {
         std::cout<<"CHECK: creating capture pipeline\n";gpu::Pipeline probe(o,pattern.bounds);std::cout<<"CHECK: capture pipeline ready\n";
@@ -67,16 +69,17 @@ void fullscreenTests(std::filesystem::path const& directory){
         require(observedLosses>0,"environment did not reproduce DXGI_ERROR_ACCESS_LOST");
         std::cout<<"PASS: actual ACCESS_LOST count="<<observedLosses<<", fresh blue/yellow GPU pixels after exclusive entry, "<<(resized?"resolution change":"no alternate mode available")<<" and desktop return; encoder canvas unchanged\n";
     }
-    for(unsigned mode=0;mode<3;++mode){
-        o.encoder=mode==0?Encoder::CPU:Encoder::GPU;o.performanceBeta=mode==2;Session manual,replay;
+    for(unsigned mode=0;mode<4;++mode){
+        o.encoder=mode==0?Encoder::CPU:Encoder::GPU;o.performanceBeta=mode>=2;o.graphics=mode==3?Graphics::Direct3D12:Graphics::Direct3D11;Session manual,replay;
         auto wait=[&](auto condition,bool bright){auto deadline=GetTickCount64()+20000;do{pattern.draw(bright);winrt::check_hresult(manual.snapshot().error);winrt::check_hresult(replay.snapshot().error);require(GetTickCount64()<deadline,"fullscreen session timeout");if(condition())return;Sleep(10);}while(true);};
         require(manual.start(o,pattern.bounds,false)&&replay.start(o,pattern.bounds,true),"fullscreen sessions rejected");
-        wait([&]{return manual.snapshot().frames>=10&&replay.snapshot().frames>=10;},false);
-        pattern.fullscreen(true);auto before=manual.snapshot().frames;wait([&]{return manual.snapshot().frames>=before+20&&!manual.snapshot().captureWaiting&&!replay.snapshot().captureWaiting;},true);
+        auto warmup=GetTickCount64();wait([&]{return GetTickCount64()>warmup+2000&&manual.snapshot().frames>=20&&replay.snapshot().frames>=20;},false);
+        pattern.fullscreen(true);auto before=manual.snapshot().frames;auto entered=GetTickCount64();wait([&]{return GetTickCount64()>entered+2000&&manual.snapshot().frames>=before+30&&!manual.snapshot().captureWaiting&&!replay.snapshot().captureWaiting;},true);
+        if(mode==3)require(manual.snapshot().nativeDx12&&replay.snapshot().nativeDx12&&!manual.snapshot().dx12Fallback&&!replay.snapshot().dx12Fallback,"DX12 fullscreen test silently fell back");
         require(replay.saveReplay(),"fullscreen replay save rejected");wait([&]{return replay.snapshot().savedGeneration>0;},true);require(videoHasBothColors(replay.snapshot().output),"saved fullscreen replay lacks changing game pixels");
         pattern.fullscreen(false);before=manual.snapshot().frames;wait([&]{return manual.snapshot().frames>=before+15&&!manual.snapshot().captureWaiting&&!replay.snapshot().captureWaiting;},false);
         auto generation=replay.snapshot().savedGeneration;require(replay.saveReplay(),"replay save after desktop return rejected");wait([&]{return replay.snapshot().savedGeneration>generation;},false);
         manual.stop();replay.stop(true);wait([&]{return !manual.busy()&&!replay.busy();},false);manual.wait();replay.wait();require(videoHasBothColors(manual.snapshot().output),"manual fullscreen video lacks changing game pixels");require(replay.snapshot().cacheBytes==0,"fullscreen replay memory was not released");
-        std::cout<<"PASS: mode="<<mode<<" CPU / standard GPU / native GPU: concurrent manual and RAM replay survive exclusive entry/exit, save twice, decode changing colors, release resources\n";
+        std::cout<<"PASS: mode="<<mode<<" CPU / standard GPU / native GPU / DX12: concurrent manual and RAM replay survive exclusive entry/exit, save twice, decode changing colors, release resources\n";
     }
 }

@@ -139,6 +139,7 @@
     <ClInclude Include="Tools\ScreenRecorder\Recording.Memory.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.Gpu.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.Desktop.h" />
+    <ClInclude Include="Tools\ScreenRecorder\Recording.Audio.h" />
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
     </ClInclude>
@@ -169,6 +170,7 @@
     <ClCompile Include="Tools\ScreenRecorder\Recording.Memory.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Gpu.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Desktop.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Audio.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Window.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Dx12.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Nvenc12.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>

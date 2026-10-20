@@ -29,9 +29,9 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
     ContentDialog windowDialog{nullptr};
     std::unique_ptr<Selector> selector;bool selectPending{};std::chrono::steady_clock::time_point selectAt;
     StackPanel root{nullptr};StackPanel settings{nullptr};ComboBox fps,codec,encoder,scaling,scale,graphics,replayStorage;
-    NumberBox bitrate,seconds,memoryLimit;ToggleSwitch microphone,cursor,beta,replay;bool syncStorage{};
+    NumberBox bitrate,seconds,memoryLimit;ToggleSwitch microphone,systemAudio,cursor,beta,replay;bool syncStorage{},syncAudio{};
     TextBox directory;Button browse,start,windowStart,stop,pause,saveReplay,preview,folder,recovery,recover,cancelSave;
-    TextBlock hint,state,region,details,betaHint,replayState,graphicsHint,memoryHint;ProgressRing progress;
+    TextBlock hint,state,region,details,betaHint,replayState,graphicsHint,memoryHint,audioHint;ProgressRing progress;
     Window floating{nullptr},previewWindow{nullptr};HWND floatingHwnd{};Grid floatingRoot{nullptr};
     TextBlock floatState;Button floatPause,floatStop,floatSave,floatOpen;
     MediaPlayerElement player{nullptr};Windows::Media::Playback::MediaPlayer mediaPlayer{nullptr};
@@ -63,7 +63,9 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         replayStorage.Width(240);for(int i=0;i<2;++i)replayStorage.Items().Append(box_value(L""));replayStorage.SelectedIndex(int(options.replayStorage));
         memoryLimit.Minimum(128);memoryLimit.Maximum(8192);memoryLimit.SmallChange(128);memoryLimit.LargeChange(512);memoryLimit.Value(options.memoryLimitMB);memoryLimit.Width(180);memoryLimit.SpinButtonPlacementMode(NumberBoxSpinButtonPlacementMode::Compact);row({replayStorage,memoryLimit});
         memoryHint=TextBlock();memoryHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(memoryHint);
-        microphone.IsOn(options.microphone);cursor.IsOn(options.cursor);row({microphone,cursor});
+        systemAudio.IsOn(options.systemAudio);microphone.IsOn(options.microphone);cursor.IsOn(options.cursor);row({systemAudio,microphone,cursor});
+        audioHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(audioHint);
+        systemAudio.Toggled([this](auto const&,auto const&){saveAudio();});microphone.Toggled([this](auto const&,auto const&){saveAudio();});
         beta.IsOn(options.performanceBeta);settings.Children().Append(beta);betaHint=TextBlock();betaHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(betaHint);
         encoder.SelectionChanged([this](auto const&,auto const&){if(localizing)return;beta.IsEnabled(encoder.SelectedIndex()==1);if(encoder.SelectedIndex()!=1){beta.IsOn(false);graphics.SelectedIndex(0);}});beta.IsEnabled(encoder.SelectedIndex()==1);
         graphics.SelectionChanged([this](auto const&,auto const&){if(!localizing&&graphics.SelectedIndex()==1){encoder.SelectedIndex(1);beta.IsOn(true);}});
@@ -117,7 +119,12 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         o.bitrate=unsigned(bitrate.Value()*1000000);o.replaySeconds=unsigned(seconds.Value());o.scale=scales[scale.SelectedIndex()];
         if(replayStorage.SelectedIndex()<0||replayStorage.SelectedIndex()>1||!std::isfinite(memoryLimit.Value())||memoryLimit.Value()!=std::floor(memoryLimit.Value())||memoryLimit.Value()<128||memoryLimit.Value()>8192)throw hresult_invalid_argument();
         o.replayStorage=ReplayStorage(replayStorage.SelectedIndex());o.memoryLimitMB=unsigned(memoryLimit.Value());
-        o.codec=Codec(codec.SelectedIndex());o.encoder=Encoder(encoder.SelectedIndex());o.scaling=Scaling(scaling.SelectedIndex());o.graphics=Graphics(graphics.SelectedIndex());o.microphone=microphone.IsOn();o.cursor=cursor.IsOn();o.performanceBeta=beta.IsOn();o.directory=directory.Text().c_str();validate(o,{0,0,1920,1080});return o;
+        o.codec=Codec(codec.SelectedIndex());o.encoder=Encoder(encoder.SelectedIndex());o.scaling=Scaling(scaling.SelectedIndex());o.graphics=Graphics(graphics.SelectedIndex());o.microphone=microphone.IsOn();o.systemAudio=systemAudio.IsOn();o.cursor=cursor.IsOn();o.performanceBeta=beta.IsOn();o.directory=directory.Text().c_str();validate(o,{0,0,1920,1080});return o;
+    }
+    void saveAudio(){
+        if(localizing||syncAudio||quitting)return;
+        try{auto next=read();save(config,next);options=next;issueKey=nullptr;}
+        catch(...){issueKey="record.settings_failed";syncAudio=true;systemAudio.IsOn(options.systemAudio);microphone.IsOn(options.microphone);syncAudio=false;}
     }
     void saveStorage(){
         if(localizing||syncStorage||quitting)return;
@@ -181,8 +188,8 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         combo(codec,{"record.h264","record.h265"});combo(encoder,{"record.cpu","record.gpu"});combo(scaling,{"record.nearest","record.linear","record.cubic","record.fant"});
         combo(graphics,{"record.graphics11","record.graphics12"});graphics.Header(box_value(tr("record.graphics")));graphicsHint.Text(tr("record.dx12_hint"));
         combo(replayStorage,{"record.cache_disk","record.cache_memory"});replayStorage.Header(box_value(tr("record.cache_storage")));memoryLimit.Header(box_value(tr("record.memory_limit")));memoryHint.Text(tr("record.memory_hint"));
-        microphone.Header(box_value(tr("record.microphone")));cursor.Header(box_value(tr("record.cursor")));beta.Header(box_value(tr("record.beta")));betaHint.Text(tr("record.beta_hint"));
-        for(auto t:{microphone,cursor,beta,replay}){t.OnContent(box_value(tr("common.enabled")));t.OffContent(box_value(tr("common.disabled")));}
+        systemAudio.Header(box_value(tr("record.system_audio")));audioHint.Text(tr("record.audio_hint"));microphone.Header(box_value(tr("record.microphone")));cursor.Header(box_value(tr("record.cursor")));beta.Header(box_value(tr("record.beta")));betaHint.Text(tr("record.beta_hint"));
+        for(auto t:{systemAudio,microphone,cursor,beta,replay}){t.OnContent(box_value(tr("common.enabled")));t.OffContent(box_value(tr("common.disabled")));}
         replay.Header(box_value(tr("record.replay_toggle")));
         label(windowStart,"record.window_select");
         directory.Header(box_value(tr("record.directory")));label(browse,"record.browse");label(start,"record.select");label(stop,"record.stop");label(saveReplay,"record.save_replay");label(preview,"record.preview");label(folder,"record.open_folder");label(recovery,"record.recovery");
@@ -229,6 +236,10 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         auto replayText=std::wstring(tr(rs.state==State::Failed?"record.replay_start_failed":rs.state==State::Starting?"record.starting":rs.state==State::Stopping?"record.stopping":rs.state==State::Recording?"record.buffering":"record.replay_off"));
         if(rs.state==State::Recording)replayText+=L" · "+elapsed(rs.bufferedSeconds)+L" · "+std::to_wstring(rs.width)+L" × "+std::to_wstring(rs.height);
         if(rs.captureWaiting)replayText+=L"\n"+std::wstring(tr("record.capture_waiting"));
+        if(rs.nativeDx12)replayText+=L"\n"+std::wstring(tr("record.graphics12"));
+        if(rs.dx12Fallback)replayText+=L"\n"+std::wstring(tr("record.dx12_fallback"));
+        if(FAILED(rs.systemAudioError))replayText+=L"\n"+std::wstring(tr("record.system_audio_failed"));
+        if(FAILED(rs.microphoneError))replayText+=L"\n"+std::wstring(tr("record.microphone_failed"));
         if(rs.memoryReplay){replayText+=L"\n"+std::wstring(tr("record.memory_usage"))+std::to_wstring((rs.cacheBytes+1048575)/1048576);if(rs.memoryLimited)replayText+=L"\n"+std::wstring(tr("record.memory_limited"));if(rs.error==E_OUTOFMEMORY||rs.error==STG_E_MEDIUMFULL)replayText+=L"\n"+std::wstring(tr("record.memory_failed"));}
         if(rs.saving)replayText+=L" · "+std::wstring(tr("record.saving"));if(FAILED(rs.error)){std::wostringstream code;code<<L" · 0x"<<std::hex<<unsigned(rs.error);replayText+=code.str();}replayState.Text(replayText);
         for(auto const& child:settings.Children()) {
@@ -236,8 +247,9 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
             if(auto row=child.try_as<StackPanel>())for(auto const& item:row.Children())if(auto control=item.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
         }
         beta.IsEnabled(!quitting&&!busy&&encoder.SelectedIndex()==1);
+        systemAudio.IsEnabled(!quitting&&!busy&&!replaySession.busy());microphone.IsEnabled(systemAudio.IsEnabled());
         replayStorage.IsEnabled(!quitting&&!busy&&!replaySession.busy());memoryLimit.IsEnabled(replayStorage.IsEnabled()&&replayStorage.SelectedIndex()==1);memoryHint.Visibility(replayStorage.SelectedIndex()==1?Visibility::Visible:Visibility::Collapsed);
-        start.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);windowStart.IsEnabled(start.IsEnabled()&&graphics.SelectedIndex()==0);replay.IsEnabled(!quitting&&rs.state!=State::Stopping);syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;pause.IsEnabled(!quitting&&running);stop.IsEnabled(!quitting&&(running||s.state==State::Starting));saveReplay.IsEnabled(!quitting&&rs.state==State::Recording&&!rs.saving&&rs.frames>0);
+        start.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);windowStart.IsEnabled(start.IsEnabled());replay.IsEnabled(!quitting&&rs.state!=State::Stopping);syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;pause.IsEnabled(!quitting&&running);stop.IsEnabled(!quitting&&(running||s.state==State::Starting));saveReplay.IsEnabled(!quitting&&rs.state==State::Recording&&!rs.saving&&rs.frames>0);
         label(pause,s.state==State::Paused?"record.resume":"record.pause");progress.IsActive(s.state==State::Starting||s.state==State::Stopping||s.saving);progress.Visibility(progress.IsActive()?Visibility::Visible:Visibility::Collapsed);
         const char* key=s.state==State::Starting?"record.starting":s.state==State::Paused?"record.paused":s.state==State::Stopping?"record.stopping":s.state==State::Failed?"record.failed":s.state==State::Completed?"record.completed":s.state==State::Recording?(s.replay?"record.buffering":"record.recording"):"record.idle";
         auto text=std::wstring(tr(key))+L" · "+elapsed(s.seconds);if(s.replay)text+=L" · "+std::wstring(tr("record.buffer"))+elapsed(s.bufferedSeconds);if(s.saving)text+=L" · "+std::wstring(tr("record.saving"))+L" "+std::to_wstring(unsigned(s.saveProgress*100))+L"%";
@@ -246,10 +258,13 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         else if(FAILED(s.error)){std::wostringstream error;error<<L" · 0x"<<std::hex<<unsigned(s.error);text+=error.str();text+=L"\n"+std::wstring(tr(running?"record.save_failed":"record.codec_hint"));}
         if(issueKey)text+=L"\n"+std::wstring(tr(issueKey));state.Text(text);
         if(s.captureWaiting){text+=L"\n"+std::wstring(tr("record.capture_waiting"));state.Text(text);}
+        if(FAILED(s.systemAudioError)){text+=L"\n"+std::wstring(tr("record.system_audio_failed"));state.Text(text);}
+        if(FAILED(s.microphoneError)){text+=L"\n"+std::wstring(tr("record.microphone_failed"));state.Text(text);}
         if(quitting)state.Text(tr("record.exiting"));
         std::wstring detail=s.output.wstring();if(s.width)detail+=L"\n"+std::to_wstring(s.width)+L" × "+std::to_wstring(s.height)+L" · "+tr("record.dropped")+std::to_wstring(s.dropped);details.Text(detail);
-        if(s.width){detail+=L"\n"+std::wstring(tr(s.optimizedVendor==0x10de?"record.optimized_nvenc":s.optimizedVendor==0x1002?"record.optimized_amf":FAILED(s.optimizationError)?"record.fallback":"record.standard"));if(!s.adapter.empty())detail+=L" · "+s.adapter;if(s.optimizedVendor==0x10de)detail+=L"\n"+std::wstring(tr(s.cuda?"record.cuda_available":"record.cuda_unavailable"));if(FAILED(s.optimizationError)){std::wostringstream code;code<<L" · 0x"<<std::hex<<unsigned(s.optimizationError);detail+=code.str();}details.Text(detail);}
+        if(s.width){detail+=L"\n"+std::wstring(tr(s.optimizedVendor==0x10de?"record.optimized_nvenc":s.optimizedVendor==0x1002?"record.optimized_amf":FAILED(s.optimizationError)?"record.fallback":"record.standard"));if(!s.adapter.empty())detail+=L" · "+s.adapter;if(s.optimizedVendor==0x10de&&!s.nativeDx12)detail+=L"\n"+std::wstring(tr(s.cuda?"record.cuda_available":"record.cuda_unavailable"));if(FAILED(s.optimizationError)){std::wostringstream code;code<<L" · 0x"<<std::hex<<unsigned(s.optimizationError);detail+=code.str();}details.Text(detail);}
         if(s.nativeDx12){detail+=L"\n"+std::wstring(tr("record.graphics12"));details.Text(detail);}
+        if(s.dx12Fallback){detail+=L"\n"+std::wstring(tr("record.dx12_fallback"));details.Text(detail);}
         if(s.windowCapture){detail+=L"\n"+s.windowTitle+L" · "+std::to_wstring(s.processId);if(s.windowMinimized)detail+=L"\n"+std::wstring(tr("record.window_minimized"));details.Text(detail);}
         preview.IsEnabled(!quitting&&!latestOutput.empty());folder.IsEnabled(!latestOutput.empty());recovery.IsEnabled(!s.recovery.empty()||!rs.recovery.empty());
         if(floating){floatState.Text(std::wstring(tr(key))+L" · "+elapsed(s.seconds));floatPause.IsEnabled(pause.IsEnabled());floatStop.IsEnabled(stop.IsEnabled());floatSave.IsEnabled(saveReplay.IsEnabled());floatSave.Visibility(s.replay?Visibility::Visible:Visibility::Collapsed);label(floatPause,s.state==State::Paused?"record.resume":"record.pause");if(!busy||s.replay)ShowWindow(floatingHwnd,SW_HIDE);}

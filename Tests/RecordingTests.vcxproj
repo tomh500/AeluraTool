@@ -9,6 +9,8 @@
  <ItemGroup>
   <ClCompile Include="recording_tests.cpp"/>
   <ClCompile Include="recording_fullscreen_tests.cpp"/>
+  <ClCompile Include="recording_audio_tests.cpp"/>
+  <ClCompile Include="recording_replay_tests.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Settings.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Media.cpp"/>
@@ -16,6 +18,7 @@
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Memory.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Gpu.cpp"/>
     <ClCompile Include="..\Tools\ScreenRecorder\Recording.Desktop.cpp" />
+    <ClCompile Include="..\Tools\ScreenRecorder\Recording.Audio.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Window.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Dx12.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Nvenc12.cpp"/>
