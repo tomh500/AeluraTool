@@ -35,6 +35,33 @@ void inspect(fs::path const& path){
     media::Ptr<IMFMediaType> type;winrt::check_hresult(reader->GetNativeMediaType(DWORD(MF_SOURCE_READER_FIRST_VIDEO_STREAM),0,&type));UINT32 w{},h{};winrt::check_hresult(MFGetAttributeSize(type.Get(),MF_MT_FRAME_SIZE,&w,&h));
     std::cout<<"VIDEO "<<w<<"x"<<h<<" seconds="<<double(duration.uhVal.QuadPart)/10000000<<" frames="<<decode(path)<<"\n";PropVariantClear(&duration);
 }
+void memoryTests(fs::path const& root){
+    fs::create_directory(root);
+    {auto budget=std::make_shared<media::MemoryBudget>(4*65536);auto first=std::make_shared<media::MemoryFile>(budget);auto a=first->stream();std::vector<BYTE> bytes(2*65536,42);ULONG count{};
+        winrt::check_hresult(a->Write(bytes.data(),ULONG(bytes.size()),&count));check(count==bytes.size()&&budget->used==2*65536,"memory quota accounting failed");
+        auto second=std::make_shared<media::MemoryFile>(budget);auto b=second->stream();bytes.resize(3*65536,77);check(FAILED(b->Write(bytes.data(),ULONG(bytes.size()),&count))&&budget->used<=budget->limit,"memory quota exceeded");
+        auto pinned=first;budget->reclaim=[&](uint64_t){a.Reset();first.reset();};check(FAILED(b->Write(bytes.data(),ULONG(bytes.size()),&count))&&budget->used<=budget->limit,"export snapshot escaped shared memory quota");pinned.reset();winrt::check_hresult(b->Write(bytes.data(),ULONG(bytes.size()),&count));check(budget->used==3*65536,"memory eviction did not reclaim payload");budget->reclaim={};
+        LARGE_INTEGER zero{};winrt::check_hresult(b->Seek(zero,STREAM_SEEK_SET,nullptr));media::Ptr<IStream> clone;winrt::check_hresult(b->Clone(&clone));BYTE value{};winrt::check_hresult(clone->Read(&value,1,&count));check(value==42,"memory clone content differs");
+        winrt::check_hresult(b->Read(&value,1,&count));check(value==42,"memory clone shared cursor");ULARGE_INTEGER length{};length.QuadPart=1;winrt::check_hresult(b->SetSize(length));length.QuadPart=100;winrt::check_hresult(b->SetSize(length));LARGE_INTEGER one{};one.QuadPart=1;winrt::check_hresult(b->Seek(one,STREAM_SEEK_SET,nullptr));winrt::check_hresult(b->Read(&value,1,&count));check(value==0,"memory stream exposed bytes after truncate/extend");
+        second->seal();check(b->Write(&value,1,&count)==STG_E_ACCESSDENIED,"sealed memory clip remained writable");
+    }
+    check(fs::is_empty(root),"memory stream created files");
+    for(auto codec:{Codec::H264,Codec::HEVC})for(auto mode:{Encoder::CPU,Encoder::GPU}){
+        if(codec==Codec::HEVC&&mode==Encoder::CPU)continue;
+        Options o;o.directory=root;o.encoder=mode;o.codec=codec;o.bitrate=1500000;auto budget=std::make_shared<media::MemoryBudget>(16*1048576);auto file=std::make_shared<media::MemoryFile>(budget);
+        media::Microphone audio(false);audio.rate=48000;audio.channels=2;
+        {media::Writer writer(o,320,240,audio,{},nullptr,nullptr,file.get());std::vector<BYTE> pixels(320*240*3/2,128);std::fill(pixels.begin(),pixels.begin()+320*240,BYTE(80));
+            for(unsigned frame=0;frame<30;++frame){writer.frame(pixels,LONGLONG(frame)*10000000/30,10000000/30);writer.sound(std::vector<int16_t>(3200),LONGLONG(frame)*10000000/30);}writer.finish();}
+        file->seal();check(file->size()>0&&budget->used<=budget->limit,"in-memory MP4 missing or over quota");
+        auto output=root/(L"ram-"+std::to_wstring(int(codec))+L"-"+std::to_wstring(int(mode))+L".mp4");
+        const auto before=std::distance(fs::directory_iterator(root),fs::directory_iterator());media::joinMemory({file,file},output);check(decode(output,true)==60,"memory MP4 remux lost video/audio");
+        check(std::distance(fs::directory_iterator(root),fs::directory_iterator())==before+1,"memory encode created unexpected temporary files");
+        bool canceled=false;try{media::joinMemory({file},root/L"cancel.mp4",[](double){return false;});}catch(winrt::hresult_error const& e){canceled=e.code()==E_ABORT;}check(canceled&&file->size()>0&&!fs::exists(root/L"cancel.mp4"),"memory cancellation lost source or left partial output");
+        bool refused=false;try{media::joinMemory({file},output);}catch(...){refused=true;}check(refused&&decode(output)==60,"memory export overwrote existing video");
+        file.reset();check(budget->used==0,"memory stream retained payload after writer, export and clips were released");
+    }
+    std::cout<<"PASS: bounded RAM streams, eviction, independent clones, sealed clips, CPU/GPU memory MP4, AAC, remux, cancel and no overwrite\n";
+}
 void checkBlueFrame(fs::path const& file){
     media::Ptr<IMFSourceReader> reader;winrt::check_hresult(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader));
     media::Ptr<IMFMediaType> type;winrt::check_hresult(MFCreateMediaType(&type));winrt::check_hresult(type->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Video));winrt::check_hresult(type->SetGUID(MF_MT_SUBTYPE,MFVideoFormat_NV12));
@@ -93,6 +120,13 @@ void windowSessionTests(fs::path const& directory){
     auto cache12=replay12.snapshot().recovery;area12.stop();replay12.stop(true);pump([&]{return !area12.busy()&&!replay12.busy();});area12.wait();replay12.wait();winrt::check_hresult(area12.snapshot().error);winrt::check_hresult(replay12.snapshot().error);
     check(decode(area12.snapshot().output)>0&&decode(replay12.snapshot().output)>0&&!fs::exists(cache12),"native12 parallel output or cleanup failed");
     std::cout<<"PASS: actual native12 area / parallel replay / export / decoded videos / cleanup\n";
+    o.replayStorage=ReplayStorage::Memory;o.memoryLimitMB=128;o.directory=directory/L"memory-saved";Session ram;
+    check(ram.start(o,client,true),"RAM replay start rejected");pump([&]{winrt::check_hresult(ram.snapshot().error);return ram.snapshot().frames>15;});
+    check(ram.snapshot().memoryReplay&&ram.snapshot().cacheBytes>0&&ram.snapshot().cacheBytes<=128*1048576ULL&&ram.snapshot().recovery.empty()&&!fs::exists(o.directory),"RAM replay wrote a directory or failed quota/status checks");
+    check(ram.saveReplay(),"RAM replay save rejected");pump([&]{winrt::check_hresult(ram.snapshot().error);return ram.snapshot().savedGeneration>0;});check(decode(ram.snapshot().output)>0,"RAM session output corrupt");
+    auto frames=ram.snapshot().frames;pump([&]{winrt::check_hresult(ram.snapshot().error);return ram.snapshot().frames>frames+5;});ram.stop(true);pump([&]{return !ram.busy();});ram.wait();winrt::check_hresult(ram.snapshot().error);
+    check(ram.snapshot().cacheBytes==0&&ram.snapshot().recovery.empty()&&std::distance(fs::directory_iterator(o.directory),fs::directory_iterator())==1,"RAM stop leaked clips or temporary disk files");
+    std::cout<<"PASS: native12 RAM replay buffers without output/cache directory, exports, continues and releases memory\n";
 }
 LRESULT CALLBACK patternWindow(HWND hwnd,UINT message,WPARAM wp,LPARAM lp){
     if(message==WM_PAINT){PAINTSTRUCT ps{};auto dc=BeginPaint(hwnd,&ps);RECT r{};GetClientRect(hwnd,&r);auto brush=CreateSolidBrush(RGB(32,88,160));FillRect(dc,&r,brush);DeleteObject(brush);SetTextColor(dc,RGB(255,255,255));SetBkMode(dc,TRANSPARENT);DrawTextW(dc,L"Generated recording test pattern",-1,&r,DT_CENTER|DT_VCENTER|DT_SINGLELINE);EndPaint(hwnd,&ps);return 0;}
@@ -104,6 +138,7 @@ int wmain(int argc,wchar_t** argv){
     try{
         media::Runtime runtime;
         if(argc==2&&std::wstring(argv[1])==L"--native12-only"){fs::create_directory(root);native12Tests(root);fs::remove_all(root);return 0;}
+        if(argc==2&&std::wstring(argv[1])==L"--memory-only"){fs::create_directory(root);memoryTests(root/L"memory");fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--window-session-only"){fs::create_directory(root);windowSessionTests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--pattern"){
             WNDCLASSW wc{};wc.lpfnWndProc=patternWindow;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"AeluraRecordingTestPattern";check(RegisterClassW(&wc)!=0,"test window registration failed");
@@ -124,7 +159,8 @@ int wmain(int argc,wchar_t** argv){
         check(outputExtent(2560,100)==2560&&outputExtent(2559,100)==2560&&outputExtent(1439,100)==1440&&outputExtent(2560,75)==1920,"NV12 edge alignment lost source pixels");
         check(replayFirst({5,5,5},10)==1&&replayFirst({5,5},300)==0&&replayFirst({},300)==0,"replay retention failed");std::vector<double> longRun(1000,5);check(replayFirst(longRun,300)==940,"five minute retention failed");
         o.performanceBeta=true;o.encoder=Encoder::GPU;o.replayEnabled=true;save(root/L"settings.json",o);auto loaded=load(root/L"settings.json");check(loaded.directory==o.directory&&loaded.performanceBeta&&loaded.encoder==Encoder::GPU&&loaded.replayEnabled,"settings roundtrip and persistent replay intent failed");
-        {std::ifstream input(root/L"settings.json");std::string legacy((std::istreambuf_iterator<char>(input)),{});auto position=legacy.find("\"replayEnabled\"");auto end=legacy.find(',',position);legacy.erase(position,end-position+1);std::ofstream output(root/L"legacy.json");output<<legacy;}check(!load(root/L"legacy.json").replayEnabled,"legacy config enabled replay unexpectedly");
+        {std::ifstream input(root/L"settings.json");std::string legacy((std::istreambuf_iterator<char>(input)),{});for(auto key:{"\"replayEnabled\"","\"replayStorage\"","\"memoryLimitMB\""}){auto position=legacy.find(key);auto end=legacy.find(',',position);legacy.erase(position,end-position+1);}std::ofstream output(root/L"legacy.json");output<<legacy;}auto legacy=load(root/L"legacy.json");check(!legacy.replayEnabled&&legacy.directory==o.directory&&legacy.replayStorage==ReplayStorage::Disk&&legacy.memoryLimitMB==1024,"legacy replay cache defaults failed");
+        {auto memory=o;memory.replayStorage=ReplayStorage::Memory;memory.memoryLimitMB=128;save(root/L"memory-settings.json",memory);auto read=load(root/L"memory-settings.json");check(read.replayStorage==ReplayStorage::Memory&&read.memoryLimitMB==128,"memory settings persistence failed");memory.memoryLimitMB=127;check(rejects(memory,{0,0,320,240}),"unsafe memory limit accepted");}
         {auto disabled=o;disabled.replayEnabled=false;disabled.graphics=Graphics::Direct3D12;save(root/L"disabled.json",disabled);auto reloaded=load(root/L"disabled.json");check(!reloaded.replayEnabled&&reloaded.graphics==Graphics::Direct3D12,"disabled replay/native graphics persistence failed");}
         {std::ofstream f(root/L"corrupt.json");f<<"broken";}check(load(root/L"corrupt.json").fps==30,"corrupt settings fallback failed");
         o.encoder=Encoder::CPU;o.performanceBeta=false;o.fps=30;o.bitrate=1500000;
@@ -158,7 +194,7 @@ int wmain(int argc,wchar_t** argv){
                 }catch(winrt::hresult_error const& e){std::cout<<"LIMIT: AMD AMF "<<int(format)<<" HRESULT 0x"<<std::hex<<unsigned(e.code())<<std::dec<<"\n";}
             }
         }
-        native12Tests(root);fs::remove_all(root);std::cout<<"PASS: recording tests completed\n";return 0;
+        native12Tests(root);memoryTests(root/L"memory");fs::remove_all(root);std::cout<<"PASS: recording tests completed\n";return 0;
     }catch(winrt::hresult_error const& e){std::wcerr<<L"FAIL: 0x"<<std::hex<<unsigned(e.code())<<L" "<<e.message().c_str()<<L" sandbox "<<root<<L"\n";return 1;}
     catch(std::exception const& e){std::cerr<<"FAIL: "<<e.what()<<" sandbox "<<root<<"\n";return 1;}
 }

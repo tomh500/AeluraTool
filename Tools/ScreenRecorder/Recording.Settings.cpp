@@ -12,7 +12,7 @@ void validate(Options const& o, RECT r) {
         o.bitrate < 100000 || o.bitrate > 200000000 || o.scale < 10 || o.scale > 100 ||
         o.replaySeconds < 10 || o.replaySeconds > 600 || static_cast<unsigned>(o.codec) > 1 ||
         static_cast<unsigned>(o.encoder) > 1 || static_cast<unsigned>(o.scaling) > 3 ||
-        static_cast<unsigned>(o.graphics)>1 || o.directory.empty() || !o.directory.is_absolute() || w * uint64_t(h) * o.scale * o.scale / 10000 > 33177600)
+        static_cast<unsigned>(o.graphics)>1 || static_cast<unsigned>(o.replayStorage)>1 || o.memoryLimitMB<128 || o.memoryLimitMB>8192 || o.directory.empty() || !o.directory.is_absolute() || w * uint64_t(h) * o.scale * o.scale / 10000 > 33177600)
         throw winrt::hresult_invalid_argument();
 }
 Options load(std::filesystem::path const& file) {
@@ -25,6 +25,7 @@ Options load(std::filesystem::path const& file) {
         o.microphone = j.at("microphone"); o.cursor = j.at("cursor"); o.performanceBeta=j.value("performanceBeta",false);
         o.replayEnabled=j.value("replayEnabled",false);
         o.graphics=static_cast<Graphics>(j.value("graphics",0));
+        o.replayStorage=static_cast<ReplayStorage>(j.value("replayStorage",0));o.memoryLimitMB=j.value("memoryLimitMB",1024u);
         o.directory = winrt::to_hstring(j.at("directory").get<std::string>()).c_str();
         validate(o, {0,0,1920,1080}); return o;
     } catch (...) { return Options{}; }
@@ -34,7 +35,8 @@ void save(std::filesystem::path const& file, Options const& o) {
     json j{{"fps",o.fps},{"bitrate",o.bitrate},{"scale",o.scale},{"replaySeconds",o.replaySeconds},
         {"codec",static_cast<int>(o.codec)},{"encoder",static_cast<int>(o.encoder)},
         {"scaling",static_cast<int>(o.scaling)},{"microphone",o.microphone},{"cursor",o.cursor},{"performanceBeta",o.performanceBeta},
-        {"directory",winrt::to_string(o.directory.wstring())},{"replayEnabled",o.replayEnabled},{"graphics",int(o.graphics)}};
+        {"directory",winrt::to_string(o.directory.wstring())},{"replayEnabled",o.replayEnabled},{"graphics",int(o.graphics)},
+        {"replayStorage",int(o.replayStorage)},{"memoryLimitMB",o.memoryLimitMB}};
     std::filesystem::create_directories(file.parent_path()); auto temp = file; temp += L".tmp";
     { std::ofstream s(temp, std::ios::binary | std::ios::trunc); s.exceptions(std::ios::badbit | std::ios::failbit); s << j.dump(2); s.flush(); }
     if (!MoveFileExW(temp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) winrt::throw_last_error();

@@ -9,6 +9,7 @@
 #include <mmdeviceapi.h>
 #include <vector>
 #include "Recording.Gpu.h"
+#include "Recording.Memory.h"
 namespace aelura::recording::media {
 template<class T> using Ptr = Microsoft::WRL::ComPtr<T>;
 struct Runtime {
@@ -30,7 +31,7 @@ struct Microphone {
 struct Writer {
     Ptr<IMFSinkWriter> sink; DWORD video{}, audio{MAXDWORD}; unsigned rate{}, channels{};
     std::unique_ptr<gpu::Encoder> native;
-    Writer(Options const&, unsigned width, unsigned height, Microphone const&, std::filesystem::path const&,gpu::Pipeline* = nullptr,std::unique_ptr<gpu::Encoder> = {});
+    Writer(Options const&, unsigned width, unsigned height, Microphone const&, std::filesystem::path const&,gpu::Pipeline* = nullptr,std::unique_ptr<gpu::Encoder> = {},MemoryFile* = nullptr);
     void frame(std::vector<BYTE> const&, LONGLONG time, LONGLONG duration);
     void texture(ID3D11Texture2D*,LONGLONG,LONGLONG);
     void texture12(ID3D12Resource*,LONGLONG,LONGLONG);

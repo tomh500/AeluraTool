@@ -135,7 +135,7 @@ bool hardware(IMFSinkWriter* writer,DWORD stream) {
     return false;
 }
 }
-Writer::Writer(Options const& o,unsigned w,unsigned h,Microphone const& mic,std::filesystem::path const& path,gpu::Pipeline* pipeline,std::unique_ptr<gpu::Encoder> encoder) : rate(mic.rate),channels(mic.channels),native(std::move(encoder)) {
+Writer::Writer(Options const& o,unsigned w,unsigned h,Microphone const& mic,std::filesystem::path const& path,gpu::Pipeline* pipeline,std::unique_ptr<gpu::Encoder> encoder,MemoryFile* memory) : rate(mic.rate),channels(mic.channels),native(std::move(encoder)) {
     if(pipeline)native=pipeline->vendor==0x10de?gpu::nvidia(o,*pipeline):gpu::amd(o,*pipeline);
     Ptr<IMFAttributes> attrs; check_hresult(MFCreateAttributes(&attrs,5));
     check_hresult(attrs->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,o.encoder==Encoder::GPU));
@@ -146,7 +146,8 @@ Writer::Writer(Options const& o,unsigned w,unsigned h,Microphone const& mic,std:
         Ptr<IMFDXGIDeviceManager> manager; UINT token{}; check_hresult(MFCreateDXGIDeviceManager(&token,&manager));
         check_hresult(manager->ResetDevice(device.Get(),token)); check_hresult(attrs->SetUnknown(MF_SINK_WRITER_D3D_MANAGER,manager.Get()));
     }
-    check_hresult(MFCreateSinkWriterFromURL(path.c_str(),nullptr,attrs.Get(),&sink));
+    if(memory){auto stream=memory->byteStream();check_hresult(attrs->SetGUID(MF_TRANSCODE_CONTAINERTYPE,MFTranscodeContainerType_MPEG4));check_hresult(MFCreateSinkWriterFromURL(nullptr,stream.Get(),attrs.Get(),&sink));}
+    else check_hresult(MFCreateSinkWriterFromURL(path.c_str(),nullptr,attrs.Get(),&sink));
     auto output=videoType(o.codec==Codec::H264?MFVideoFormat_H264:MFVideoFormat_HEVC,w,h,o.fps);
     if(native){auto extra=native->headers();if(!extra.empty())check_hresult(output->SetBlob(MF_MT_MPEG_SEQUENCE_HEADER,extra.data(),static_cast<UINT32>(extra.size())));}
     check_hresult(output->SetUINT32(MF_MT_AVG_BITRATE,o.bitrate)); check_hresult(sink->AddStream(output.Get(),&video));

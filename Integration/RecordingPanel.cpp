@@ -28,10 +28,10 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
     std::filesystem::path latestOutput;
     ContentDialog windowDialog{nullptr};
     std::unique_ptr<Selector> selector;bool selectPending{};std::chrono::steady_clock::time_point selectAt;
-    StackPanel root{nullptr};StackPanel settings{nullptr};ComboBox fps,codec,encoder,scaling,scale,graphics;
-    NumberBox bitrate,seconds;ToggleSwitch microphone,cursor,beta,replay;
+    StackPanel root{nullptr};StackPanel settings{nullptr};ComboBox fps,codec,encoder,scaling,scale,graphics,replayStorage;
+    NumberBox bitrate,seconds,memoryLimit;ToggleSwitch microphone,cursor,beta,replay;bool syncStorage{};
     TextBox directory;Button browse,start,windowStart,stop,pause,saveReplay,preview,folder,recovery,recover,cancelSave;
-    TextBlock hint,state,region,details,betaHint,replayState,graphicsHint;ProgressRing progress;
+    TextBlock hint,state,region,details,betaHint,replayState,graphicsHint,memoryHint;ProgressRing progress;
     Window floating{nullptr},previewWindow{nullptr};HWND floatingHwnd{};Grid floatingRoot{nullptr};
     TextBlock floatState;Button floatPause,floatStop,floatSave,floatOpen;
     MediaPlayerElement player{nullptr};Windows::Media::Playback::MediaPlayer mediaPlayer{nullptr};
@@ -60,12 +60,16 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         row({fps,bitrate,seconds});row({codec,encoder});row({scale,scaling});
         graphics.Width(350);for(int i=0;i<2;++i)graphics.Items().Append(box_value(L""));graphics.SelectedIndex(int(options.graphics));settings.Children().Append(graphics);
         graphicsHint=TextBlock();graphicsHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(graphicsHint);
+        replayStorage.Width(240);for(int i=0;i<2;++i)replayStorage.Items().Append(box_value(L""));replayStorage.SelectedIndex(int(options.replayStorage));
+        memoryLimit.Minimum(128);memoryLimit.Maximum(8192);memoryLimit.SmallChange(128);memoryLimit.LargeChange(512);memoryLimit.Value(options.memoryLimitMB);memoryLimit.Width(180);memoryLimit.SpinButtonPlacementMode(NumberBoxSpinButtonPlacementMode::Compact);row({replayStorage,memoryLimit});
+        memoryHint=TextBlock();memoryHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(memoryHint);
         microphone.IsOn(options.microphone);cursor.IsOn(options.cursor);row({microphone,cursor});
         beta.IsOn(options.performanceBeta);settings.Children().Append(beta);betaHint=TextBlock();betaHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(betaHint);
         encoder.SelectionChanged([this](auto const&,auto const&){if(localizing)return;beta.IsEnabled(encoder.SelectedIndex()==1);if(encoder.SelectedIndex()!=1){beta.IsOn(false);graphics.SelectedIndex(0);}});beta.IsEnabled(encoder.SelectedIndex()==1);
         graphics.SelectionChanged([this](auto const&,auto const&){if(!localizing&&graphics.SelectedIndex()==1){encoder.SelectedIndex(1);beta.IsOn(true);}});
         beta.Toggled([this](auto const&,auto const&){if(!localizing&&!beta.IsOn())graphics.SelectedIndex(0);});
         directory.Text(options.directory.wstring());directory.IsReadOnly(true);settings.Children().Append(directory);settings.Children().Append(browse);
+        replayStorage.SelectionChanged([this](auto const&,auto const&){saveStorage();});memoryLimit.ValueChanged([this](auto const&,auto const&){saveStorage();});
         root.Children().Append(settings);
         root.Children().Append(replay);
         replayState=TextBlock();replayState.TextWrapping(TextWrapping::Wrap);root.Children().Append(replayState);
@@ -111,7 +115,14 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         Options o=options;const unsigned rates[]{15,24,30,60,120},scales[]{100,75,50,25};o.fps=rates[fps.SelectedIndex()];
         if(!std::isfinite(bitrate.Value())||!std::isfinite(seconds.Value()))throw hresult_invalid_argument();
         o.bitrate=unsigned(bitrate.Value()*1000000);o.replaySeconds=unsigned(seconds.Value());o.scale=scales[scale.SelectedIndex()];
+        if(replayStorage.SelectedIndex()<0||replayStorage.SelectedIndex()>1||!std::isfinite(memoryLimit.Value())||memoryLimit.Value()!=std::floor(memoryLimit.Value())||memoryLimit.Value()<128||memoryLimit.Value()>8192)throw hresult_invalid_argument();
+        o.replayStorage=ReplayStorage(replayStorage.SelectedIndex());o.memoryLimitMB=unsigned(memoryLimit.Value());
         o.codec=Codec(codec.SelectedIndex());o.encoder=Encoder(encoder.SelectedIndex());o.scaling=Scaling(scaling.SelectedIndex());o.graphics=Graphics(graphics.SelectedIndex());o.microphone=microphone.IsOn();o.cursor=cursor.IsOn();o.performanceBeta=beta.IsOn();o.directory=directory.Text().c_str();validate(o,{0,0,1920,1080});return o;
+    }
+    void saveStorage(){
+        if(localizing||syncStorage||quitting)return;
+        try{auto next=read();save(config,next);options=next;issueKey=nullptr;}
+        catch(...){issueKey="record.settings_failed";syncStorage=true;replayStorage.SelectedIndex(int(options.replayStorage));memoryLimit.Value(options.memoryLimitMB);syncStorage=false;}
     }
     void select(){
         if(quitting||session.busy()||selector||selectPending||pickingWindow)return;
@@ -169,6 +180,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         auto combo=[](ComboBox const& c,std::initializer_list<char const*> keys){auto index=c.SelectedIndex();c.Items().Clear();for(auto key:keys)c.Items().Append(box_value(tr(key)));c.SelectedIndex(index);};
         combo(codec,{"record.h264","record.h265"});combo(encoder,{"record.cpu","record.gpu"});combo(scaling,{"record.nearest","record.linear","record.cubic","record.fant"});
         combo(graphics,{"record.graphics11","record.graphics12"});graphics.Header(box_value(tr("record.graphics")));graphicsHint.Text(tr("record.dx12_hint"));
+        combo(replayStorage,{"record.cache_disk","record.cache_memory"});replayStorage.Header(box_value(tr("record.cache_storage")));memoryLimit.Header(box_value(tr("record.memory_limit")));memoryHint.Text(tr("record.memory_hint"));
         microphone.Header(box_value(tr("record.microphone")));cursor.Header(box_value(tr("record.cursor")));beta.Header(box_value(tr("record.beta")));betaHint.Text(tr("record.beta_hint"));
         for(auto t:{microphone,cursor,beta,replay}){t.OnContent(box_value(tr("common.enabled")));t.OffContent(box_value(tr("common.disabled")));}
         replay.Header(box_value(tr("record.replay_toggle")));
@@ -216,12 +228,14 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         auto rs=replaySession.snapshot();if(!quitting)notification.update(rs,requested);
         auto replayText=std::wstring(tr(rs.state==State::Failed?"record.replay_start_failed":rs.state==State::Starting?"record.starting":rs.state==State::Stopping?"record.stopping":rs.state==State::Recording?"record.buffering":"record.replay_off"));
         if(rs.state==State::Recording)replayText+=L" · "+elapsed(rs.bufferedSeconds)+L" · "+std::to_wstring(rs.width)+L" × "+std::to_wstring(rs.height);
+        if(rs.memoryReplay){replayText+=L"\n"+std::wstring(tr("record.memory_usage"))+std::to_wstring((rs.cacheBytes+1048575)/1048576);if(rs.memoryLimited)replayText+=L"\n"+std::wstring(tr("record.memory_limited"));if(rs.error==E_OUTOFMEMORY||rs.error==STG_E_MEDIUMFULL)replayText+=L"\n"+std::wstring(tr("record.memory_failed"));}
         if(rs.saving)replayText+=L" · "+std::wstring(tr("record.saving"));if(FAILED(rs.error)){std::wostringstream code;code<<L" · 0x"<<std::hex<<unsigned(rs.error);replayText+=code.str();}replayState.Text(replayText);
         for(auto const& child:settings.Children()) {
             if(auto control=child.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
             if(auto row=child.try_as<StackPanel>())for(auto const& item:row.Children())if(auto control=item.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
         }
         beta.IsEnabled(!quitting&&!busy&&encoder.SelectedIndex()==1);
+        replayStorage.IsEnabled(!quitting&&!busy&&!replaySession.busy());memoryLimit.IsEnabled(replayStorage.IsEnabled()&&replayStorage.SelectedIndex()==1);memoryHint.Visibility(replayStorage.SelectedIndex()==1?Visibility::Visible:Visibility::Collapsed);
         start.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);windowStart.IsEnabled(start.IsEnabled()&&graphics.SelectedIndex()==0);replay.IsEnabled(!quitting&&rs.state!=State::Stopping);syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;pause.IsEnabled(!quitting&&running);stop.IsEnabled(!quitting&&(running||s.state==State::Starting));saveReplay.IsEnabled(!quitting&&rs.state==State::Recording&&!rs.saving&&rs.frames>0);
         label(pause,s.state==State::Paused?"record.resume":"record.pause");progress.IsActive(s.state==State::Starting||s.state==State::Stopping||s.saving);progress.Visibility(progress.IsActive()?Visibility::Visible:Visibility::Collapsed);
         const char* key=s.state==State::Starting?"record.starting":s.state==State::Paused?"record.paused":s.state==State::Stopping?"record.stopping":s.state==State::Failed?"record.failed":s.state==State::Completed?"record.completed":s.state==State::Recording?(s.replay?"record.buffering":"record.recording"):"record.idle";

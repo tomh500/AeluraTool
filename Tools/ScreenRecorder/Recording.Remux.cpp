@@ -6,19 +6,20 @@
 namespace aelura::recording {
 using namespace media;
 using winrt::check_hresult;
-void join(std::vector<std::filesystem::path> const& files,std::filesystem::path const& output,std::function<bool(double)> progress) {
-    if(files.empty()) winrt::throw_hresult(E_INVALIDARG);
+static void joinReaders(size_t count,std::function<void(size_t,Ptr<IMFSourceReader>&)> const& create,std::filesystem::path const& output,std::function<bool(double)> progress,bool discardFailure=false) {
+    if(!count) winrt::throw_hresult(E_INVALIDARG);
     Runtime runtime;
     // Reserve the output atomically. MF opens this exact file; never overwrite a caller's file.
     HANDLE reserved=CreateFileW(output.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
     if(reserved==INVALID_HANDLE_VALUE) winrt::throw_last_error(); CloseHandle(reserved);
+    struct Cleanup {std::filesystem::path path;bool remove;~Cleanup(){if(remove){std::error_code error;std::filesystem::remove(path,error);}}} cleanup{output,discardFailure};
     Ptr<IMFSinkWriter> writer; LONGLONG offset=0;
     std::array<DWORD,2> destinations{MAXDWORD,MAXDWORD};
     std::array<Ptr<IMFMediaType>,2> types;
     size_t completed=0;
-    for(auto const& file:files) {
-        if(progress&&!progress(double(completed)/files.size()))winrt::throw_hresult(E_ABORT);
-        Ptr<IMFSourceReader> reader; check_hresult(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader));
+    while(completed<count) {
+        if(progress&&!progress(double(completed)/count))winrt::throw_hresult(E_ABORT);
+        Ptr<IMFSourceReader> reader;create(completed,reader);
         check_hresult(reader->SetStreamSelection(DWORD(MF_SOURCE_READER_ALL_STREAMS),FALSE));
         std::array<DWORD,2> sources{MAXDWORD,MAXDWORD};
         for(DWORD i=0;i<8;++i) {
@@ -44,7 +45,7 @@ void join(std::vector<std::filesystem::path> const& files,std::filesystem::path 
         if((sources[1]!=MAXDWORD)!=(destinations[1]!=MAXDWORD)) winrt::throw_hresult(MF_E_INVALIDMEDIATYPE);
         LONGLONG videoEnd=0; std::array<bool,2> ended{false,sources[1]==MAXDWORD};
         while(!ended[0] || !ended[1]) {
-            if(progress&&!progress(double(completed)/files.size()))winrt::throw_hresult(E_ABORT);
+            if(progress&&!progress(double(completed)/count))winrt::throw_hresult(E_ABORT);
             DWORD stream{},flags{}; LONGLONG time{}; Ptr<IMFSample> s;
             check_hresult(reader->ReadSample(DWORD(MF_SOURCE_READER_ANY_STREAM),0,&stream,&flags,&time,&s));
             if(flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED) winrt::throw_hresult(MF_E_INVALIDMEDIATYPE);
@@ -62,6 +63,13 @@ void join(std::vector<std::filesystem::path> const& files,std::filesystem::path 
         ++completed;
     }
     check_hresult(writer->Finalize());
+    cleanup.remove=false;
     if(progress)progress(1);
+}
+void join(std::vector<std::filesystem::path> const& files,std::filesystem::path const& output,std::function<bool(double)> progress){
+    joinReaders(files.size(),[&](size_t index,Ptr<IMFSourceReader>& reader){check_hresult(MFCreateSourceReaderFromURL(files[index].c_str(),nullptr,&reader));},output,std::move(progress));
+}
+void media::joinMemory(std::vector<std::shared_ptr<MemoryFile>> const& files,std::filesystem::path const& output,std::function<bool(double)> progress){
+    joinReaders(files.size(),[&](size_t index,Ptr<IMFSourceReader>& reader){auto stream=files[index]->byteStream();check_hresult(MFCreateSourceReaderFromByteStream(stream.Get(),nullptr,&reader));},output,std::move(progress),true);
 }
 }
