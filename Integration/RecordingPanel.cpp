@@ -228,6 +228,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         auto rs=replaySession.snapshot();if(!quitting)notification.update(rs,requested);
         auto replayText=std::wstring(tr(rs.state==State::Failed?"record.replay_start_failed":rs.state==State::Starting?"record.starting":rs.state==State::Stopping?"record.stopping":rs.state==State::Recording?"record.buffering":"record.replay_off"));
         if(rs.state==State::Recording)replayText+=L" · "+elapsed(rs.bufferedSeconds)+L" · "+std::to_wstring(rs.width)+L" × "+std::to_wstring(rs.height);
+        if(rs.captureWaiting)replayText+=L"\n"+std::wstring(tr("record.capture_waiting"));
         if(rs.memoryReplay){replayText+=L"\n"+std::wstring(tr("record.memory_usage"))+std::to_wstring((rs.cacheBytes+1048575)/1048576);if(rs.memoryLimited)replayText+=L"\n"+std::wstring(tr("record.memory_limited"));if(rs.error==E_OUTOFMEMORY||rs.error==STG_E_MEDIUMFULL)replayText+=L"\n"+std::wstring(tr("record.memory_failed"));}
         if(rs.saving)replayText+=L" · "+std::wstring(tr("record.saving"));if(FAILED(rs.error)){std::wostringstream code;code<<L" · 0x"<<std::hex<<unsigned(rs.error);replayText+=code.str();}replayState.Text(replayText);
         for(auto const& child:settings.Children()) {
@@ -244,6 +245,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         if(s.error==E_ABORT)text+=L"\n"+std::wstring(tr("record.save_canceled"));
         else if(FAILED(s.error)){std::wostringstream error;error<<L" · 0x"<<std::hex<<unsigned(s.error);text+=error.str();text+=L"\n"+std::wstring(tr(running?"record.save_failed":"record.codec_hint"));}
         if(issueKey)text+=L"\n"+std::wstring(tr(issueKey));state.Text(text);
+        if(s.captureWaiting){text+=L"\n"+std::wstring(tr("record.capture_waiting"));state.Text(text);}
         if(quitting)state.Text(tr("record.exiting"));
         std::wstring detail=s.output.wstring();if(s.width)detail+=L"\n"+std::to_wstring(s.width)+L" × "+std::to_wstring(s.height)+L" · "+tr("record.dropped")+std::to_wstring(s.dropped);details.Text(detail);
         if(s.width){detail+=L"\n"+std::wstring(tr(s.optimizedVendor==0x10de?"record.optimized_nvenc":s.optimizedVendor==0x1002?"record.optimized_amf":FAILED(s.optimizationError)?"record.fallback":"record.standard"));if(!s.adapter.empty())detail+=L" · "+s.adapter;if(s.optimizedVendor==0x10de)detail+=L"\n"+std::wstring(tr(s.cuda?"record.cuda_available":"record.cuda_unavailable"));if(FAILED(s.optimizationError)){std::wostringstream code;code<<L" · 0x"<<std::hex<<unsigned(s.optimizationError);detail+=code.str();}details.Text(detail);}

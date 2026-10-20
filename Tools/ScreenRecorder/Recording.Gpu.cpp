@@ -1,9 +1,11 @@
 #include "Recording.Gpu.h"
 #include "Recording.Window.h"
+#include "Recording.Desktop.h"
 #include <winrt/base.h>
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cstring>
+#include <chrono>
 #pragma comment(lib,"dxgi.lib")
 #pragma comment(lib,"d3dcompiler.lib")
 namespace aelura::recording::gpu {
@@ -26,8 +28,9 @@ float4 ps(Vertex v):SV_Target{
 })";
 }
 struct Pipeline::Impl {
-    Pipeline* owner;Options options;RECT region{},monitor{};
-    Ptr<ID3D11DeviceContext> context;Ptr<IDXGIOutputDuplication> duplication;
+    Pipeline* owner;Options options;RECT region{},monitor{},originalRegion{},originalMonitor{};
+    std::shared_ptr<DesktopCapture> capture;bool wholeMonitor{},waiting{},converted{};uint64_t generation{};
+    Ptr<ID3D11DeviceContext> context;
     Ptr<ID3D11Texture2D> desktop,scaled,nv12,cursor;
     Ptr<ID3D11Texture2D> staging;
     std::unique_ptr<WindowCapture> window;
@@ -36,7 +39,7 @@ struct Pipeline::Impl {
     Ptr<ID3D11SamplerState> linear,point;Ptr<ID3D11VideoDevice> video;Ptr<ID3D11VideoContext> videoContext;
     Ptr<ID3D11VideoProcessorEnumerator> enumerator;Ptr<ID3D11VideoProcessor> processor;
     Ptr<ID3D11VideoProcessorInputView> input;Ptr<ID3D11VideoProcessorOutputView> output;
-    HCURSOR lastCursor{};unsigned cursorWidth{1},cursorHeight{1};POINT hotspot{};bool ready{};
+    HCURSOR lastCursor{};unsigned cursorWidth{1},cursorHeight{1};POINT hotspot{};
     explicit Impl(Pipeline* p):owner(p){}
     void setup(Options const& o,RECT r,HWND hwnd){
         options=o;region=r;
@@ -51,10 +54,10 @@ struct Pipeline::Impl {
                 }
             }
         }
-        if(!chosen||(!hwnd&&owner->vendor!=0x10de&&owner->vendor!=0x1002))winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
+        if(!chosen)winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
         D3D_FEATURE_LEVEL level{};check_hresult(D3D11CreateDevice(chosen.Get(),D3D_DRIVER_TYPE_UNKNOWN,nullptr,D3D11_CREATE_DEVICE_BGRA_SUPPORT|D3D11_CREATE_DEVICE_VIDEO_SUPPORT,nullptr,0,D3D11_SDK_VERSION,&owner->device,&level,&context));
         if(hwnd){window=std::make_unique<WindowCapture>(hwnd,owner->device.Get(),o.cursor);region=monitor={0,0,LONG(window->width),LONG(window->height)};}
-        else check_hresult(chosenOutput->DuplicateOutput(owner->device.Get(),&duplication));
+        else {capture=DesktopCapture::share(owner->device.Get(),chosenOutput.Get());owner->device=capture->device;context=capture->context;originalRegion=region;originalMonitor=monitor;wholeMonitor=EqualRect(&region,&monitor)!=FALSE;waiting=true;}
         owner->width=outputExtent(unsigned(region.right-region.left),o.scale);owner->height=outputExtent(unsigned(region.bottom-region.top),o.scale);
         D3D11_TEXTURE2D_DESC d{};d.Width=monitor.right-monitor.left;d.Height=monitor.bottom-monitor.top;d.MipLevels=1;d.ArraySize=1;d.Format=DXGI_FORMAT_B8G8R8A8_UNORM;d.SampleDesc.Count=1;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;
         check_hresult(owner->device->CreateTexture2D(&d,nullptr,&desktop));check_hresult(owner->device->CreateShaderResourceView(desktop.Get(),nullptr,&desktopView));
@@ -86,6 +89,15 @@ struct Pipeline::Impl {
         D3D11_TEXTURE2D_DESC d{};d.Width=cursorWidth;d.Height=cursorHeight;d.MipLevels=d.ArraySize=1;d.SampleDesc.Count=1;d.Format=DXGI_FORMAT_B8G8R8A8_UNORM;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;D3D11_SUBRESOURCE_DATA initial{black.data(),cursorWidth*4,0};
         cursorView.Reset();cursor.Reset();check_hresult(owner->device->CreateTexture2D(&d,&initial,&cursor));check_hresult(owner->device->CreateShaderResourceView(cursor.Get(),nullptr,&cursorView));lastCursor=handle;
     }
+    void desktopFrame(ID3D11Texture2D* surface){
+        D3D11_TEXTURE2D_DESC old{},current{};desktop->GetDesc(&old);surface->GetDesc(&current);
+        if(old.Width!=current.Width||old.Height!=current.Height||old.Format!=current.Format){
+            Ptr<ID3D11Texture2D> replacement;Ptr<ID3D11ShaderResourceView> view;
+            current.BindFlags=D3D11_BIND_SHADER_RESOURCE;current.MiscFlags=0;current.Usage=D3D11_USAGE_DEFAULT;current.CPUAccessFlags=0;current.ArraySize=current.MipLevels=1;
+            check_hresult(owner->device->CreateTexture2D(&current,nullptr,&replacement));check_hresult(owner->device->CreateShaderResourceView(replacement.Get(),nullptr,&view));desktop=replacement;desktopView=view;
+        }
+        context->CopyResource(desktop.Get(),surface);
+    }
     ID3D11Texture2D* next(){
         if(window){
             if(window->closed())return nullptr;
@@ -95,9 +107,13 @@ struct Pipeline::Impl {
             else if(desktop.Get()!=surface)context->CopyResource(desktop.Get(),surface);
             region=monitor={0,0,LONG(current.Width),LONG(current.Height)};
         }else{
-        DXGI_OUTDUPL_FRAME_INFO info{};Ptr<IDXGIResource> resource;auto hr=duplication->AcquireNextFrame(ready?0:100,&info,&resource);
-        if(hr==DXGI_ERROR_WAIT_TIMEOUT&&!ready)winrt::throw_hresult(hr);
-        if(hr!=DXGI_ERROR_WAIT_TIMEOUT){check_hresult(hr);try{Ptr<ID3D11Texture2D> texture;check_hresult(resource.As(&texture));context->CopyResource(desktop.Get(),texture.Get());ready=true;}catch(...){duplication->ReleaseFrame();throw;}check_hresult(duplication->ReleaseFrame());}
+        capture->next();waiting=capture->waiting;
+        if(waiting)return converted?nv12.Get():nullptr;
+        monitor=capture->monitor;
+        // Keep the encoder canvas fixed while the game changes display mode.
+        if(wholeMonitor)region=monitor;
+        else {region=originalRegion;OffsetRect(&region,monitor.left-originalMonitor.left,monitor.top-originalMonitor.top);RECT clipped{};if(!IntersectRect(&clipped,&region,&monitor))winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_INVALID_MONITOR_HANDLE));region=clipped;}
+        if(generation!=capture->generation){desktopFrame(capture->texture.Get());generation=capture->generation;}
         }
         float values[16]{};auto mw=float(monitor.right-monitor.left),mh=float(monitor.bottom-monitor.top);
         values[0]=(region.left-monitor.left)/mw;values[1]=(region.top-monitor.top)/mh;values[2]=(region.right-region.left)/mw;values[3]=(region.bottom-region.top)/mh;
@@ -107,14 +123,17 @@ struct Pipeline::Impl {
         context->UpdateSubresource(constants.Get(),0,nullptr,values,0,0);auto cb=constants.Get();context->PSSetConstantBuffers(0,1,&cb);auto t=target.Get();context->OMSetRenderTargets(1,&t,nullptr);
         D3D11_VIEWPORT viewport{0,0,float(owner->width),float(owner->height),0,1};context->RSSetViewports(1,&viewport);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);context->VSSetShader(vs.Get(),nullptr,0);context->PSSetShader(ps.Get(),nullptr,0);
         ID3D11ShaderResourceView* textures[]{desktopView.Get(),cursorView.Get()};context->PSSetShaderResources(0,2,textures);ID3D11SamplerState* samplers[]{linear.Get(),point.Get()};context->PSSetSamplers(0,2,samplers);context->Draw(3,0);context->OMSetRenderTargets(0,nullptr,nullptr);ID3D11ShaderResourceView* empty[]{nullptr,nullptr};context->PSSetShaderResources(0,2,empty);
-        D3D11_VIDEO_PROCESSOR_STREAM stream{};stream.Enable=TRUE;stream.pInputSurface=input.Get();check_hresult(videoContext->VideoProcessorBlt(processor.Get(),output.Get(),0,1,&stream));context->Flush();return nv12.Get();
+        D3D11_VIDEO_PROCESSOR_STREAM stream{};stream.Enable=TRUE;stream.pInputSurface=input.Get();check_hresult(videoContext->VideoProcessorBlt(processor.Get(),output.Get(),0,1,&stream));context->Flush();converted=true;return nv12.Get();
     }
 };
 Pipeline::Pipeline(Options const& o,RECT r,HWND window):impl_(std::make_unique<Impl>(this)){impl_->setup(o,r,window);}
 Pipeline::~Pipeline()=default;
-ID3D11Texture2D* Pipeline::next(){return impl_->next();}
+ID3D11Texture2D* Pipeline::next(){std::unique_lock<std::recursive_mutex> lock;if(impl_->capture)lock=std::unique_lock(impl_->capture->mutex);return impl_->next();}
 bool Pipeline::sourceClosed()const{return impl_->window&&impl_->window->closed();}
+bool Pipeline::captureWaiting()const{return impl_->waiting;}
+uint64_t Pipeline::captureRecoveries()const{if(!impl_->capture)return 0;std::lock_guard lock(impl_->capture->mutex);return impl_->capture->recoveries;}
 std::vector<BYTE> Pipeline::readback(){
+    std::unique_lock<std::recursive_mutex> lock;if(impl_->capture)lock=std::unique_lock(impl_->capture->mutex);
     if(!impl_->staging){D3D11_TEXTURE2D_DESC d{};impl_->nv12->GetDesc(&d);d.Usage=D3D11_USAGE_STAGING;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;d.BindFlags=0;check_hresult(device->CreateTexture2D(&d,nullptr,&impl_->staging));}
     impl_->context->CopyResource(impl_->staging.Get(),impl_->nv12.Get());D3D11_MAPPED_SUBRESOURCE map{};check_hresult(impl_->context->Map(impl_->staging.Get(),0,D3D11_MAP_READ,0,&map));
     std::vector<BYTE> pixels;try{pixels.resize(size_t(width)*height*3/2);for(unsigned y=0;y<height+height/2;++y)memcpy(pixels.data()+size_t(y)*width,static_cast<BYTE*>(map.pData)+size_t(y)*map.RowPitch,width);}catch(...){impl_->context->Unmap(impl_->staging.Get(),0);throw;}impl_->context->Unmap(impl_->staging.Get(),0);return pixels;

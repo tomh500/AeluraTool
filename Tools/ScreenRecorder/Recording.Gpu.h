@@ -12,6 +12,8 @@ struct Pipeline {
     ID3D11Texture2D* next();
     std::vector<BYTE> readback();
     bool sourceClosed() const;
+    bool captureWaiting() const;
+    uint64_t captureRecoveries() const;
     Ptr<ID3D11Device> device; unsigned vendor{},width{},height{};std::wstring adapter;
 private:
     struct Impl;std::unique_ptr<Impl> impl_;

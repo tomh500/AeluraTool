@@ -8,6 +8,7 @@
 #include <stdexcept>
 using namespace aelura::recording;
 namespace fs=std::filesystem;
+void fullscreenTests(fs::path const&);
 void check(bool value,char const* reason){if(!value)throw std::runtime_error(reason);}
 uint64_t decode(fs::path const& file,bool audio=false){
     media::Ptr<IMFSourceReader> reader;winrt::check_hresult(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader));
@@ -137,6 +138,7 @@ int wmain(int argc,wchar_t** argv){
     fs::path root=fs::temp_directory_path()/(L"AeluraRecordingTests-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
     try{
         media::Runtime runtime;
+        if(argc==2&&std::wstring(argv[1])==L"--fullscreen-only"){fs::create_directory(root);fullscreenTests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--native12-only"){fs::create_directory(root);native12Tests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--memory-only"){fs::create_directory(root);memoryTests(root/L"memory");fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--window-session-only"){fs::create_directory(root);windowSessionTests(root);fs::remove_all(root);return 0;}

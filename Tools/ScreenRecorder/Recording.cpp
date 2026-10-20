@@ -61,7 +61,7 @@ struct Session::Impl {
                 if(window||!native)winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
                 pipeline12=std::make_unique<gpu::Dx12Pipeline>(o,r);update([&](auto& s){s.nativeDx12=true;s.optimizedVendor=int(pipeline12->vendor);s.adapter=pipeline12->adapter;});
             }
-            if(!pipeline12&&(window||native)) {
+            if(!pipeline12) {
                 try {pipeline=std::make_unique<gpu::Pipeline>(o,r,window);const bool cuda=pipeline->vendor==0x10de && gpu::cudaAvailable();update([&](auto& s){s.optimizedVendor=native?int(pipeline->vendor):0;s.adapter=pipeline->adapter;s.cuda=cuda;});}
                 catch(...){const auto hr=exceptionCode();update([&](auto& s){s.optimizationError=hr;});}
             }
@@ -97,7 +97,7 @@ struct Session::Impl {
                 try{writer=std::make_unique<media::Writer>(o,width,height,mic,current->path,native?pipeline.get():nullptr,pipeline12?gpu::nvidia12(o,pipeline12->device.Get(),width,height):nullptr,current->memory.get());}
                 catch(...){
                     if(!pipeline || tick)throw;
-                    const auto hr=exceptionCode();native=false;if(!window){pipeline.reset();frames=std::make_unique<media::Frames>(o,r);}
+                    const auto hr=exceptionCode();native=false;
                     update([&](auto& s){s.optimizationError=hr;s.optimizedVendor=0;});
                     if(memoryReplay)current->memory=std::make_shared<media::MemoryFile>(budget);
                     writer=std::make_unique<media::Writer>(o,width,height,mic,current->path,nullptr,nullptr,current->memory.get());
@@ -133,12 +133,12 @@ struct Session::Impl {
                 // Refresh the virtual desktop each frame; a removed monitor must stop capture.
                 RECT desktop{GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};
                 desktop.right=desktop.left+GetSystemMetrics(SM_CXVIRTUALSCREEN); desktop.bottom=desktop.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
-                RECT clipped{}; if(!window&&(!IntersectRect(&clipped,&r,&desktop) || !EqualRect(&clipped,&r))) winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_INVALID_MONITOR_HANDLE));
+                RECT clipped{}; if(!pipeline&&!pipeline12&&!window&&(!IntersectRect(&clipped,&r,&desktop) || !EqualRect(&clipped,&r))) winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_INVALID_MONITOR_HANDLE));
                 ID3D11Texture2D* texture{};
                 ID3D12Resource* texture12{};
                 if(pipeline12)texture12=pipeline12->next();
                 if(window)update([&](auto& s){s.windowMinimized=IsIconic(window)!=FALSE;});
-                if(pipeline){if(pipeline->sourceClosed())break;texture=pipeline->next();if(!texture){mic.read();std::this_thread::sleep_for(milliseconds(10));continue;}}
+                if(pipeline){if(pipeline->sourceClosed())break;texture=pipeline->next();update([&](auto& s){s.captureWaiting=pipeline->captureWaiting();});if(!texture){mic.read();std::this_thread::sleep_for(milliseconds(10));continue;}}
                 if(!read().frames){epoch=now;tick=0;}
                 const auto actual=uint64_t(duration_cast<nanoseconds>(now-epoch).count())*o.fps/1000000000ULL;
                 if(actual>tick) { const auto dropped=actual-tick; tick=actual; update([&](auto& s){s.dropped+=dropped;}); }
@@ -186,7 +186,7 @@ struct Session::Impl {
                     update([&](auto& s){s.bufferedSeconds=std::min(buffered,double(o.replaySeconds));if(budget){s.cacheBytes=budget->used.load();s.memoryLimited=ring->limited;}});
                 }
             }
-            update([](auto& s){s.state=State::Stopping;});
+            update([](auto& s){s.state=State::Stopping;s.captureWaiting=false;});
             if(!tick){writer.reset();if(!memoryReplay){if(current){std::error_code ec;std::filesystem::remove(current->path,ec);}std::error_code ec;std::filesystem::remove(cache/L"session.json",ec);std::filesystem::remove(cache,ec);}current.reset();update([](auto& s){s.state=State::Completed;s.saving=false;s.cacheBytes=0;s.recovery.clear();});return;}
             finish();
             if(exporter.joinable()) exporter.join();
@@ -220,7 +220,7 @@ struct Session::Impl {
             // Keep finalized segments and the partial file, together with the journal.
             if(exporter.joinable()) exporter.join();
             {std::lock_guard lock(ring->mutex);for(auto& s:segments)s->discard=false;if(memoryReplay)segments.clear();}
-            update([&](auto& s){s.state=State::Failed;s.error=hr;s.saving=false;if(memoryReplay)s.cacheBytes=0;});
+            update([&](auto& s){s.state=State::Failed;s.captureWaiting=false;s.error=hr;s.saving=false;if(memoryReplay)s.cacheBytes=0;});
         }
     }
 };

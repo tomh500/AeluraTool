@@ -1,5 +1,14 @@
 # 验证记录
 
+## 全屏切换恢复（2026-10-20～21，1.5.2.0）
+
+- 修复 0x887A0026（DXGI_ERROR_ACCESS_LOST）导致重放终止：共享显示器采集、重新枚举输出并重建接口，处理首帧超时及暂时不可用，保持编码画布与已有缓存。普通 CPU/GPU 编码也使用默认 DX11 采集，厂商编码初始化回退不再丢弃该采集管线。
+- Release / Debug x64 全解决方案构建及完整回归均通过；迁移、哈希、搜索/分类、快捷键失败回滚、截图通信及 Job、图片分享、NVENC/AMF、原生 DX12、内存流检查均继续通过。534 对语言资源、512 个静态引用有效。日志为 artifacts/recording-fullscreen-build-*.txt、recording-fullscreen-tests-*.txt。
+- 两套 --fullscreen-only 实测程序生成的独占全屏画面，实际观察 ACCESS_LOST（Release 两次、Debug 三次）；进入全屏、切换 1280×720、返回桌面后读取变化的蓝/黄色 NV12 像素，恢复后不是仅重复旧帧。CPU、标准 GPU、厂商 GPU 三种模式均实际并行自由录制与内存重放，保存两次、解码检查新旧颜色与递增时间戳、停止释放缓存。日志为 artifacts/recording-fullscreen-session-*.txt。
+- 两套 --window-session-only 检查窗口遮挡/移动/缩放/最小化、窗口录制与磁盘重放并行、原生 DX12 两路录制/保存/解码、内存重放无临时文件及停止释放，均通过。日志为 artifacts/recording-fullscreen-window-*.txt。
+- 1.5.2.0 已部署至版本化布局，部署 exe 与最终 Release 构建哈希一致。Computer Use 实查浅色中文、深色英语、图像分类、replay 搜索及返回；即时重放按用户原参数自动恢复，界面缓冲达到五分钟，2560×1440，内存约 468 MiB，保存按钮可用。主题/语言恢复自动后，recording.json 与 hotkeys.ini 均与验收前备份逐文件哈希一致。
+- 未操作 CS2 对局或证明 CS2 Vulkan 实际成片；游戏兼容性不能由 D3D11 生成画面测试替代。原生 DX12 仍为 GDI 桌面取帧，不保证独占全屏，界面明确提示游戏录制使用默认 DX11；捕获端 API 不要求与游戏相同。未验证保护内容、拔屏、驱动重置或长期游戏帧时间；文件符号链接样本仍因 1314 跳过。
+
 ## 即时重放内存缓存（2026-10-20，1.5.1.0）
 
 - 工作区开始时只有用户原有的 BUILD_AND_DISTRIBUTE.md 空行修改，继续保留且不纳入功能提交。新增「硬盘 / 内存」缓存选择及 128–8192 MiB 压缩片段上限，默认 1024 MiB；旧配置保持硬盘模式。Docs/ReplayStorage.md 说明持续写入量、容量预留、恢复能力和 Windows 分页边界。

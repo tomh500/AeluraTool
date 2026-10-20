@@ -34,7 +34,7 @@ struct Snapshot {
     unsigned savedGeneration{};
     int optimizedVendor{};bool cuda{};HRESULT optimizationError{S_OK};std::wstring adapter;
     bool windowCapture{}, windowMinimized{}; DWORD processId{}; std::wstring windowTitle;
-    bool nativeDx12{};
+    bool nativeDx12{},captureWaiting{};
     bool memoryReplay{},memoryLimited{};uint64_t cacheBytes{};
 };
 Options load(std::filesystem::path const& file);
