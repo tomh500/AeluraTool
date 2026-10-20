@@ -57,6 +57,7 @@ void MainWindow::LocalizeLifecycle() {
 }
 fire_and_forget MainWindow::RequestClose(bool explicitExit) {
     auto lifetime = get_strong();
+    if(recording_ && recording_->busy()) { RestoreWindow(); Notice(tr("record.wait"),true); co_return; }
     if (fileTask_ != FileTask::None) { RestoreWindow(); Notice(tr("files.wait"), true); co_return; }
     if (closeDialogOpen_) { RestoreWindow(); co_return; }
     int action = explicitExit ? 1 : closeAction_;
@@ -74,13 +75,14 @@ fire_and_forget MainWindow::RequestClose(bool explicitExit) {
             action = result == ContentDialogResult::Primary ? 2 : 1;
             // Recheck after the asynchronous dialog: a hotkey may have started a file task.
             if (fileTask_ != FileTask::None) { Notice(tr("files.wait"), true); co_return; }
+            if(recording_ && recording_->busy()) { Notice(tr("record.wait"),true); co_return; }
             if (remember.IsChecked().Value()) {
                 if (!SaveBehavior(L"CloseAction", action)) co_return;
                 closeAction_ = action; localizing_ = true; CloseActionChoice().SelectedIndex(action); localizing_ = false;
             }
         } catch (hresult_error const&) { closeDialogOpen_ = false; Notice(tr("close.dialog_failed"), true); co_return; }
     }
-    if (action == 2) HideToTray(); else Close();
+    if (action == 2) HideToTray(); else { RecordingHost().Content(nullptr);recording_.reset();Close(); }
 }
 fire_and_forget MainWindow::StartupSetting(std::optional<bool> enable) {
     if (startupBusy_) co_return;

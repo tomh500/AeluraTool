@@ -13,6 +13,7 @@ keys = set()
 for path in files:
     text = path.read_text(encoding="utf-8-sig")
     keys.update(re.findall(r'(?:tr|utf8)\("([\w.]+)"\)', text))
+    keys.update(re.findall(r'"(record\.[a-z0-9_.]+)"', text))
 for name in ("SearchCatalog.h", "ToolCatalog.h"):
     text = (root / "Integration" / name).read_text(encoding="utf-8-sig")
     keys.update(re.findall(r'"([a-z][a-z0-9_]*\.[a-z0-9_.]+)"', text))

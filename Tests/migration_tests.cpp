@@ -51,7 +51,9 @@ void run_migration_tests(fs::path const& root) {
         check(aelura::catalog::matches(L"文件管理 FreeMove", L"文件 freemove"), "search not case insensitive");
         HWND window = CreateWindowExW(0, L"STATIC", L"test", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
         aelura::hotkeys::Manager manager; manager.load(window, root / "keys.ini"); std::wstring error;
-        check(manager.bindings.back().id == L"hash" && !manager.bindings.back().enabled, "hash hotkey must default to disabled");
+        const size_t hashIndex=5;
+        check(manager.bindings.at(hashIndex).id == L"hash" && !manager.bindings.at(hashIndex).enabled, "hash hotkey must default to disabled");
+        check(manager.bindings.at(6).id==L"record"&&!manager.bindings.at(6).enabled&&manager.bindings.at(7).id==L"replay-save"&&!manager.bindings.at(7).enabled,"recording hotkeys must default to disabled");
         if (!manager.save(2, MOD_CONTROL | MOD_ALT, VK_F22, true, error)) { std::wcerr << error << L" Win32=" << GetLastError() << L" hwnd=" << window << L"\n"; throw std::runtime_error("binding failed"); }
         check(!manager.save(3, MOD_CONTROL | MOD_ALT, VK_F22, true, error), "duplicate binding accepted");
         check(manager.bindings[2].registered && !manager.bindings[3].registered, "binding rollback failed");
@@ -68,12 +70,17 @@ void run_migration_tests(fs::path const& root) {
             WritePrivateProfileStringW(L"Appearance", L"Theme", L"2", upgrade.c_str()), "upgrade fixture failed");
         manager.load(window, upgrade);
         check(manager.bindings[0].key == 'Z' && !manager.bindings[0].enabled && !manager.bindings.back().enabled, "hash upgrade changed existing settings");
-        check(manager.save(manager.bindings.size() - 1, MOD_CONTROL | MOD_ALT, VK_F21, true, error), "hash binding save failed");
+        check(manager.save(hashIndex, MOD_CONTROL | MOD_ALT, VK_F21, true, error), "hash binding save failed");
         check(GetPrivateProfileIntW(L"Appearance", L"Theme", 0, upgrade.c_str()) == 2, "hash save changed theme");
         manager.release(); manager.load(window, upgrade);
-        check(manager.bindings.back().id == L"hash" && manager.bindings.back().registered && manager.bindings[0].key == 'Z', "hash binding restore failed");
+        check(manager.bindings.at(hashIndex).id == L"hash" && manager.bindings.at(hashIndex).registered && manager.bindings[0].key == 'Z', "hash binding restore failed");
         aelura::i18n::select(2); manager.localize();
-        check(manager.bindings.back().title == L"Open file hash verifier" && manager.bindings.back().category == L"Files", "hash binding localization failed");
+        check(manager.bindings.at(hashIndex).title == L"Open file hash verifier" && manager.bindings.at(hashIndex).category == L"Files", "hash binding localization failed");
+        check(manager.save(6,MOD_CONTROL|MOD_ALT,VK_F20,true,error),"recording binding save failed");
+        check(!manager.save(7,MOD_CONTROL|MOD_ALT,VK_F20,true,error)&&manager.bindings[6].registered&&!manager.bindings[7].registered,"replay conflict lost recording binding");
+        auto old=manager.bindings[6];manager.config=root/L"missing-parent"/L"invalid"/L"keys.ini";
+        check(!manager.save(6,MOD_CONTROL|MOD_ALT,VK_F19,true,error)&&manager.bindings[6].key==old.key&&manager.bindings[6].registered,"recording persistence rollback lost old binding");
+        check(RegisterHotKey(window,997,MOD_CONTROL|MOD_ALT,VK_F19),"recording persistence failure leaked candidate");UnregisterHotKey(window,997);
         manager.release(); DestroyWindow(window);
         std::cout << "PASS: migration, cancellation, source changes, empty directories, conflicts, persistence rollback, search\n";
 }

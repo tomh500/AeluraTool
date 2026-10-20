@@ -79,6 +79,7 @@ void MainWindow::ActivateTool(std::wstring const& id) {
     if (id == L"capture") Invoke(1);
     else if (id == L"move") { ShowWindow(hwnd_, SW_RESTORE); SetForegroundWindow(hwnd_); Page(3); }
     else if (id == L"hash") { ShowWindow(hwnd_, SW_RESTORE); SetForegroundWindow(hwnd_); Page(4); }
+    else if (id == L"record") { RestoreWindow(); Page(5); }
     else if (id == L"strike") LaunchStrike();
 }
 void MainWindow::LaunchStrike() {

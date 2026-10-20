@@ -7,6 +7,7 @@
 #include "Integration/DesktopLifecycle.h"
 #include "Integration/HotkeyManager.h"
 #include "Integration/FileHash.h"
+#include "Integration/RecordingPanel.h"
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
 namespace winrt::AeluraTool::implementation {
     struct MainWindow : MainWindowT<MainWindow> {
@@ -37,6 +38,7 @@ namespace winrt::AeluraTool::implementation {
         FileTask fileTask_{FileTask::None};
         bool fileTaskNotice_{};
         aelura::hash::Session hashSession_;
+        std::unique_ptr<aelura::recording::Panel> recording_;
         Microsoft::UI::Dispatching::DispatcherQueueTimer hashTimer_{nullptr};
         bool ready_{}, localizing_{}, startupPlayed_{};
         int languagePreference_{};

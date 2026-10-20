@@ -69,6 +69,9 @@ void MainWindow::ApplyLanguage() {
     CancelMoveButton().Content(box_value(tr("common.cancel")));
     StartupName().Text(tr("app.brand"));
     LocalizeHash();
+    RecordingBackLabel().Text(tr("nav.back"));
+    Automation::AutomationProperties::SetName(RecordingBackButton(),tr("nav.back"));
+    if(recording_) recording_->localize();
     // Refresh the selected-item presenter; changing an item's content alone leaves its cached text behind.
     ThemeChoice().SelectedIndex(-1); ThemeChoice().SelectedIndex(themeIndex);
     LanguageChoice().SelectedIndex(-1); LanguageChoice().SelectedIndex(languageIndex);
