@@ -49,7 +49,7 @@ struct Pipeline::Impl {
             }
         }
         if(!chosen||(owner->vendor!=0x10de&&owner->vendor!=0x1002))winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
-        owner->width=std::max(2u,unsigned(r.right-r.left)*o.scale/100)&~1u;owner->height=std::max(2u,unsigned(r.bottom-r.top)*o.scale/100)&~1u;
+        owner->width=outputExtent(unsigned(r.right-r.left),o.scale);owner->height=outputExtent(unsigned(r.bottom-r.top),o.scale);
         D3D_FEATURE_LEVEL level{};check_hresult(D3D11CreateDevice(chosen.Get(),D3D_DRIVER_TYPE_UNKNOWN,nullptr,D3D11_CREATE_DEVICE_BGRA_SUPPORT|D3D11_CREATE_DEVICE_VIDEO_SUPPORT,nullptr,0,D3D11_SDK_VERSION,&owner->device,&level,&context));
         check_hresult(chosenOutput->DuplicateOutput(owner->device.Get(),&duplication));
         D3D11_TEXTURE2D_DESC d{};d.Width=monitor.right-monitor.left;d.Height=monitor.bottom-monitor.top;d.MipLevels=1;d.ArraySize=1;d.Format=DXGI_FORMAT_B8G8R8A8_UNORM;d.SampleDesc.Count=1;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;

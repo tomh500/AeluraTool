@@ -132,6 +132,8 @@
     <ClInclude Include="Integration\I18n.h" />
     <ClInclude Include="Integration\RecordingPanel.h" />
     <ClInclude Include="Integration\RecordingSelector.h" />
+    <ClInclude Include="Integration\RecordingNotification.h" />
+    <ClInclude Include="Integration\Diagnostics.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.Media.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.Gpu.h" />
@@ -156,6 +158,8 @@
     <ClCompile Include="MainWindow.Search.cpp" />
     <ClCompile Include="Integration\RecordingPanel.cpp" />
     <ClCompile Include="Integration\RecordingSelector.cpp" />
+    <ClCompile Include="Integration\RecordingNotification.cpp" />
+    <ClCompile Include="Integration\Diagnostics.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><AdditionalIncludeDirectories>$(ProjectDir)Tools\ScreenShotPlus\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Settings.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><AdditionalIncludeDirectories>$(ProjectDir)Tools\ScreenShotPlus\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Media.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>

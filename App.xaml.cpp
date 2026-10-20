@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
+#include "Integration/Diagnostics.h"
 #include <winrt/Windows.ApplicationModel.h>
 
 using namespace winrt;
@@ -17,6 +18,9 @@ namespace winrt::AeluraTool::implementation
     /// </summary>
     App::App()
     {
+        UnhandledException([](IInspectable const&, UnhandledExceptionEventArgs const& e) {
+            aelura::diagnostics::failure("xaml.unhandled", e.Exception(), e.Message());
+        });
         // Xaml objects should not call InitializeComponent during construction.
         // See https://github.com/microsoft/cppwinrt/tree/master/nuget#initializecomponent
 

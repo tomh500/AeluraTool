@@ -34,6 +34,7 @@ Options load(std::filesystem::path const& file);
 void save(std::filesystem::path const& file, Options const& options);
 void validate(Options const&, RECT region);
 RECT selectionRect(POINT a, POINT b, RECT desktop);
+unsigned outputExtent(unsigned pixels, unsigned scale);
 // Segment starts are independent keyframes. Keep only complete segments that fit.
 size_t replayFirst(std::vector<double> const& durations, double limit);
 // Lossless remux of complete, independently decodable MP4 segments.

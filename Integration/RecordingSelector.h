@@ -1,12 +1,13 @@
 #pragma once
 #include "../Tools/ScreenRecorder/Recording.h"
-#include <winrt/Microsoft.UI.Xaml.h>
 #include <optional>
 namespace aelura::recording {
 class Selector {
 public:
-    Selector(winrt::Microsoft::UI::Xaml::ElementTheme,bool replay);
+    explicit Selector(std::function<HWND()> host);
     ~Selector();
+    void poll();
+    HRESULT error{S_OK};
     bool done{};
     std::optional<RECT> result;
 private:

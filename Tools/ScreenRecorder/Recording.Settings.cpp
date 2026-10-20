@@ -42,6 +42,11 @@ RECT selectionRect(POINT a, POINT b, RECT d) {
     a.y = std::clamp(a.y,d.top,d.bottom); b.y = std::clamp(b.y,d.top,d.bottom);
     return {std::min(a.x,b.x),std::min(a.y,b.y),std::max(a.x,b.x),std::max(a.y,b.y)};
 }
+unsigned outputExtent(unsigned pixels, unsigned scale) {
+    // NV12 requires even dimensions. Round up so the last source row/column
+    // survives, including a full monitor whose last mouse coordinate is 2559.
+    return std::max(2u, (pixels * scale + 99) / 100 + 1) & ~1u;
+}
 size_t replayFirst(std::vector<double> const& d, double limit) {
     double total = 0; size_t first = d.size();
     while (first && total + d[first - 1] <= limit + 0.001) total += d[--first];

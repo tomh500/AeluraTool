@@ -2,9 +2,9 @@
 
 项目自身的 Media Foundation / WASAPI 录制模块，无外部录制进程或下载依赖。
 
-选区的归一化、窗口 Z 序吸附、DWM 可见窗口过滤及虚拟桌面坐标处理参考本仓库
-`Tools/ScreenShotPlus/capture.cpp`（MIT，版权和许可见 `../ScreenShotPlus/LICENSE`）。
-界面由 WinUI 3 构建；未修改或回写独立 ScreenShotPlus 原项目。
+录屏通过进程内固定通信协议直接复用本仓库 `Tools/ScreenShotPlus/capture.cpp` 的
+区域选择模式（MIT，版权和许可见 `../ScreenShotPlus/LICENSE`），不写入截图或更改剪贴板。
+设置、录制控制、保存提示和预览界面由 WinUI 3 构建；未修改或回写独立 ScreenShotPlus 原项目。
 
 Windows Media Foundation 编码器由操作系统和显卡驱动提供；H.265 及硬件编码可用性取决于本机安装的编码器。
 

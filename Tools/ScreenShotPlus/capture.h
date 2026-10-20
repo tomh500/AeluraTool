@@ -6,4 +6,6 @@ using CaptureDone = std::function<void(std::unique_ptr<Gdiplus::Bitmap>, POINT, 
 void ConfigureCapture(unsigned shade, bool guides, bool animate, bool windowSelection = false);
 bool BeginSelection(HINSTANCE instance, CaptureDone done, std::wstring& error);
 void CancelSelection();
+using RegionDone = std::function<void(RECT, std::wstring)>;
+bool BeginRegionSelection(HINSTANCE instance, RegionDone done, std::wstring& error);
 RECT LastCaptureRect();

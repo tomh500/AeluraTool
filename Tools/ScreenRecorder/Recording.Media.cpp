@@ -19,8 +19,8 @@ using winrt::check_hresult;
 Runtime::Runtime() { check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED)); try { check_hresult(MFStartup(MF_VERSION)); } catch (...) { CoUninitialize(); throw; } }
 Runtime::~Runtime() { MFShutdown(); CoUninitialize(); }
 Frames::Frames(Options const& o, RECT r) : region(r), options(o) {
-    width = std::max(2u, unsigned(r.right-r.left)*o.scale/100) & ~1u;
-    height = std::max(2u, unsigned(r.bottom-r.top)*o.scale/100) & ~1u;
+    width = outputExtent(unsigned(r.right-r.left), o.scale);
+    height = outputExtent(unsigned(r.bottom-r.top), o.scale);
     check_hresult(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));
     screen = GetDC(nullptr); memory = CreateCompatibleDC(screen);
     BITMAPINFO info{}; info.bmiHeader = {sizeof(BITMAPINFOHEADER),r.right-r.left,-(r.bottom-r.top),1,32,BI_RGB};

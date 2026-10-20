@@ -171,7 +171,7 @@ using aelura::i18n::tr;
         });
         moveTimer_ = DispatcherQueue().CreateTimer(); moveTimer_.Interval(std::chrono::milliseconds(120));
         moveTimer_.Tick([this](auto const&, auto const&) { auto total = moveTotal_.load(); MoveProgress().Value(total ? 100.0 * moveDone_.load() / total : 0); });
-        recording_ = std::make_unique<aelura::recording::Panel>(hwnd_,config_.parent_path()/L"recording.json",[this]{RestoreWindow();Page(5);if(recording_&&!recording_->busy())Status().IsOpen(false);});
+        recording_ = std::make_unique<aelura::recording::Panel>(hwnd_,config_.parent_path()/L"recording.json",[this]{RestoreWindow();Page(5);if(recording_&&!recording_->busy())Status().IsOpen(false);},[this]{auto host=EngineWindow();if(!host&&!pending_)Invoke(capture::Prepare);return host;});
         RecordingHost().Content(recording_->content());recording_->theme(Root().RequestedTheme());
         RecordingBackButton().Click([this](auto const&,auto const&){GoBack();});
         SetupHash(); SetupLifecycle(); ApplyLanguage(); ready_ = true;
@@ -195,7 +195,7 @@ using aelura::i18n::tr;
                 } else if (result != capture::Accepted) {
                     if (command == capture::Start) ShowWindow(hwnd_, SW_RESTORE);
                     Notice(tr("capture.busy"), true);
-                } else Notice(command == capture::Start ? tr("capture.started") : command == capture::Settings ? tr("capture.settings_open") : tr("capture.recent_open"));
+                } else if(command != capture::Prepare) Notice(command == capture::Start ? tr("capture.started") : command == capture::Settings ? tr("capture.settings_open") : tr("capture.recent_open"));
                 pending_ = 0;
             }
             else if (++attempts_ >= 100 || (process_ && WaitForSingleObject(process_, 0) == WAIT_OBJECT_0)) {
@@ -232,7 +232,7 @@ using aelura::i18n::tr;
             }
             CloseHandle(process.hThread);
         }
-        pending_ = command; attempts_ = 0; Notice(tr("capture.opening")); timer_.Start();
+        pending_ = command; attempts_ = 0; if(command != capture::Prepare)Notice(tr("capture.opening")); timer_.Start();
     }
     LRESULT CALLBACK MainWindow::WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) {
         auto self = reinterpret_cast<MainWindow*>(data);

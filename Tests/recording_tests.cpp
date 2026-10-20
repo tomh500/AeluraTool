@@ -58,6 +58,7 @@ int wmain(int argc,wchar_t** argv){
         auto rejects=[&](Options const& value,RECT r){try{validate(value,r);return false;}catch(...){return true;}};
         validate(o,{0,0,320,240});auto bad=o;bad.fps=0;check(rejects(bad,{0,0,320,240}),"zero fps accepted");bad=o;bad.bitrate=0;check(rejects(bad,{0,0,320,240}),"zero bitrate accepted");check(rejects(o,{0,0,1,240}),"one pixel region accepted");
         RECT r=selectionRect({200,300},{-500,-400},{-100,-100,100,100});check(r.left==-100&&r.top==-100&&r.right==100&&r.bottom==100,"negative-monitor selection failed");
+        check(outputExtent(2560,100)==2560&&outputExtent(2559,100)==2560&&outputExtent(1439,100)==1440&&outputExtent(2560,75)==1920,"NV12 edge alignment lost source pixels");
         check(replayFirst({5,5,5},10)==1&&replayFirst({5,5},300)==0&&replayFirst({},300)==0,"replay retention failed");std::vector<double> longRun(1000,5);check(replayFirst(longRun,300)==940,"five minute retention failed");
         o.performanceBeta=true;o.encoder=Encoder::GPU;save(root/L"settings.json",o);auto loaded=load(root/L"settings.json");check(loaded.directory==o.directory&&loaded.performanceBeta&&loaded.encoder==Encoder::GPU,"settings roundtrip failed");
         {std::ofstream f(root/L"corrupt.json");f<<"broken";}check(load(root/L"corrupt.json").fps==30,"corrupt settings fallback failed");
