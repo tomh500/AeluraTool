@@ -1,4 +1,5 @@
 #include "Recording.Gpu.h"
+#include "Recording.Window.h"
 #include <winrt/base.h>
 #include <d3dcompiler.h>
 #include <algorithm>
@@ -28,6 +29,8 @@ struct Pipeline::Impl {
     Pipeline* owner;Options options;RECT region{},monitor{};
     Ptr<ID3D11DeviceContext> context;Ptr<IDXGIOutputDuplication> duplication;
     Ptr<ID3D11Texture2D> desktop,scaled,nv12,cursor;
+    Ptr<ID3D11Texture2D> staging;
+    std::unique_ptr<WindowCapture> window;
     Ptr<ID3D11ShaderResourceView> desktopView,cursorView;Ptr<ID3D11RenderTargetView> target;
     Ptr<ID3D11VertexShader> vs;Ptr<ID3D11PixelShader> ps;Ptr<ID3D11Buffer> constants;
     Ptr<ID3D11SamplerState> linear,point;Ptr<ID3D11VideoDevice> video;Ptr<ID3D11VideoContext> videoContext;
@@ -35,23 +38,24 @@ struct Pipeline::Impl {
     Ptr<ID3D11VideoProcessorInputView> input;Ptr<ID3D11VideoProcessorOutputView> output;
     HCURSOR lastCursor{};unsigned cursorWidth{1},cursorHeight{1};POINT hotspot{};bool ready{};
     explicit Impl(Pipeline* p):owner(p){}
-    void setup(Options const& o,RECT r){
+    void setup(Options const& o,RECT r,HWND hwnd){
         options=o;region=r;
         Ptr<IDXGIFactory1> factory;check_hresult(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
         Ptr<IDXGIAdapter1> chosen;Ptr<IDXGIOutput1> chosenOutput;
         for(UINT a=0;!chosen;++a){Ptr<IDXGIAdapter1> candidate;if(factory->EnumAdapters1(a,&candidate)==DXGI_ERROR_NOT_FOUND)break;
             DXGI_ADAPTER_DESC1 desc{};check_hresult(candidate->GetDesc1(&desc));if(desc.Flags&DXGI_ADAPTER_FLAG_SOFTWARE)continue;
             for(UINT n=0;;++n){Ptr<IDXGIOutput> display;if(candidate->EnumOutputs(n,&display)==DXGI_ERROR_NOT_FOUND)break;DXGI_OUTPUT_DESC d{};check_hresult(display->GetDesc(&d));RECT intersection{};
-                if(d.AttachedToDesktop&&IntersectRect(&intersection,&r,&d.DesktopCoordinates)&&EqualRect(&intersection,&r)){
-                    if(d.Rotation!=DXGI_MODE_ROTATION_IDENTITY)winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
+                if(d.AttachedToDesktop&&((hwnd&&MonitorFromWindow(hwnd,MONITOR_DEFAULTTONEAREST)==d.Monitor)||(!hwnd&&IntersectRect(&intersection,&r,&d.DesktopCoordinates)&&EqualRect(&intersection,&r)))){
+                    if(!hwnd&&d.Rotation!=DXGI_MODE_ROTATION_IDENTITY)winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
                     chosen=candidate;check_hresult(display.As(&chosenOutput));monitor=d.DesktopCoordinates;owner->vendor=desc.VendorId;owner->adapter=desc.Description;break;
                 }
             }
         }
-        if(!chosen||(owner->vendor!=0x10de&&owner->vendor!=0x1002))winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
-        owner->width=outputExtent(unsigned(r.right-r.left),o.scale);owner->height=outputExtent(unsigned(r.bottom-r.top),o.scale);
+        if(!chosen||(!hwnd&&owner->vendor!=0x10de&&owner->vendor!=0x1002))winrt::throw_hresult(DXGI_ERROR_UNSUPPORTED);
         D3D_FEATURE_LEVEL level{};check_hresult(D3D11CreateDevice(chosen.Get(),D3D_DRIVER_TYPE_UNKNOWN,nullptr,D3D11_CREATE_DEVICE_BGRA_SUPPORT|D3D11_CREATE_DEVICE_VIDEO_SUPPORT,nullptr,0,D3D11_SDK_VERSION,&owner->device,&level,&context));
-        check_hresult(chosenOutput->DuplicateOutput(owner->device.Get(),&duplication));
+        if(hwnd){window=std::make_unique<WindowCapture>(hwnd,owner->device.Get(),o.cursor);region=monitor={0,0,LONG(window->width),LONG(window->height)};}
+        else check_hresult(chosenOutput->DuplicateOutput(owner->device.Get(),&duplication));
+        owner->width=outputExtent(unsigned(region.right-region.left),o.scale);owner->height=outputExtent(unsigned(region.bottom-region.top),o.scale);
         D3D11_TEXTURE2D_DESC d{};d.Width=monitor.right-monitor.left;d.Height=monitor.bottom-monitor.top;d.MipLevels=1;d.ArraySize=1;d.Format=DXGI_FORMAT_B8G8R8A8_UNORM;d.SampleDesc.Count=1;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;
         check_hresult(owner->device->CreateTexture2D(&d,nullptr,&desktop));check_hresult(owner->device->CreateShaderResourceView(desktop.Get(),nullptr,&desktopView));
         d.Width=owner->width;d.Height=owner->height;d.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
@@ -83,25 +87,41 @@ struct Pipeline::Impl {
         cursorView.Reset();cursor.Reset();check_hresult(owner->device->CreateTexture2D(&d,&initial,&cursor));check_hresult(owner->device->CreateShaderResourceView(cursor.Get(),nullptr,&cursorView));lastCursor=handle;
     }
     ID3D11Texture2D* next(){
+        if(window){
+            if(window->closed())return nullptr;
+            auto surface=window->next();if(!surface)return nullptr;
+            D3D11_TEXTURE2D_DESC old{},current{};desktop->GetDesc(&old);surface->GetDesc(&current);
+            if(old.Width!=current.Width||old.Height!=current.Height){desktopView.Reset();desktop=surface;check_hresult(owner->device->CreateShaderResourceView(desktop.Get(),nullptr,&desktopView));}
+            else if(desktop.Get()!=surface)context->CopyResource(desktop.Get(),surface);
+            region=monitor={0,0,LONG(current.Width),LONG(current.Height)};
+        }else{
         DXGI_OUTDUPL_FRAME_INFO info{};Ptr<IDXGIResource> resource;auto hr=duplication->AcquireNextFrame(ready?0:100,&info,&resource);
         if(hr==DXGI_ERROR_WAIT_TIMEOUT&&!ready)winrt::throw_hresult(hr);
         if(hr!=DXGI_ERROR_WAIT_TIMEOUT){check_hresult(hr);try{Ptr<ID3D11Texture2D> texture;check_hresult(resource.As(&texture));context->CopyResource(desktop.Get(),texture.Get());ready=true;}catch(...){duplication->ReleaseFrame();throw;}check_hresult(duplication->ReleaseFrame());}
+        }
         float values[16]{};auto mw=float(monitor.right-monitor.left),mh=float(monitor.bottom-monitor.top);
         values[0]=(region.left-monitor.left)/mw;values[1]=(region.top-monitor.top)/mh;values[2]=(region.right-region.left)/mw;values[3]=(region.bottom-region.top)/mh;
         values[4]=mw;values[5]=mh;values[6]=float(owner->width);values[7]=float(owner->height);values[12]=float(options.scaling);
         CURSORINFO pointer{sizeof(pointer)};
-        if(options.cursor&&GetCursorInfo(&pointer)&&pointer.flags==CURSOR_SHOWING){if(lastCursor!=pointer.hCursor)cursorImage(pointer.hCursor);const auto sx=float(owner->width)/(region.right-region.left),sy=float(owner->height)/(region.bottom-region.top);values[8]=(pointer.ptScreenPos.x-region.left-hotspot.x)*sx;values[9]=(pointer.ptScreenPos.y-region.top-hotspot.y)*sy;values[10]=cursorWidth*sx;values[11]=cursorHeight*sy;values[13]=1;}
+        if(!window&&options.cursor&&GetCursorInfo(&pointer)&&pointer.flags==CURSOR_SHOWING){if(lastCursor!=pointer.hCursor)cursorImage(pointer.hCursor);const auto sx=float(owner->width)/(region.right-region.left),sy=float(owner->height)/(region.bottom-region.top);values[8]=(pointer.ptScreenPos.x-region.left-hotspot.x)*sx;values[9]=(pointer.ptScreenPos.y-region.top-hotspot.y)*sy;values[10]=cursorWidth*sx;values[11]=cursorHeight*sy;values[13]=1;}
         context->UpdateSubresource(constants.Get(),0,nullptr,values,0,0);auto cb=constants.Get();context->PSSetConstantBuffers(0,1,&cb);auto t=target.Get();context->OMSetRenderTargets(1,&t,nullptr);
         D3D11_VIEWPORT viewport{0,0,float(owner->width),float(owner->height),0,1};context->RSSetViewports(1,&viewport);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);context->VSSetShader(vs.Get(),nullptr,0);context->PSSetShader(ps.Get(),nullptr,0);
         ID3D11ShaderResourceView* textures[]{desktopView.Get(),cursorView.Get()};context->PSSetShaderResources(0,2,textures);ID3D11SamplerState* samplers[]{linear.Get(),point.Get()};context->PSSetSamplers(0,2,samplers);context->Draw(3,0);context->OMSetRenderTargets(0,nullptr,nullptr);ID3D11ShaderResourceView* empty[]{nullptr,nullptr};context->PSSetShaderResources(0,2,empty);
         D3D11_VIDEO_PROCESSOR_STREAM stream{};stream.Enable=TRUE;stream.pInputSurface=input.Get();check_hresult(videoContext->VideoProcessorBlt(processor.Get(),output.Get(),0,1,&stream));context->Flush();return nv12.Get();
     }
 };
-Pipeline::Pipeline(Options const& o,RECT r):impl_(std::make_unique<Impl>(this)){impl_->setup(o,r);}
+Pipeline::Pipeline(Options const& o,RECT r,HWND window):impl_(std::make_unique<Impl>(this)){impl_->setup(o,r,window);}
 Pipeline::~Pipeline()=default;
 ID3D11Texture2D* Pipeline::next(){return impl_->next();}
+bool Pipeline::sourceClosed()const{return impl_->window&&impl_->window->closed();}
+std::vector<BYTE> Pipeline::readback(){
+    if(!impl_->staging){D3D11_TEXTURE2D_DESC d{};impl_->nv12->GetDesc(&d);d.Usage=D3D11_USAGE_STAGING;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;d.BindFlags=0;check_hresult(device->CreateTexture2D(&d,nullptr,&impl_->staging));}
+    impl_->context->CopyResource(impl_->staging.Get(),impl_->nv12.Get());D3D11_MAPPED_SUBRESOURCE map{};check_hresult(impl_->context->Map(impl_->staging.Get(),0,D3D11_MAP_READ,0,&map));
+    std::vector<BYTE> pixels;try{pixels.resize(size_t(width)*height*3/2);for(unsigned y=0;y<height+height/2;++y)memcpy(pixels.data()+size_t(y)*width,static_cast<BYTE*>(map.pData)+size_t(y)*map.RowPitch,width);}catch(...){impl_->context->Unmap(impl_->staging.Get(),0);throw;}impl_->context->Unmap(impl_->staging.Get(),0);return pixels;
+}
 bool cudaAvailable(){
     HMODULE dll=LoadLibraryExW(L"nvcuda.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);if(!dll)return false;
     using Init=int(__stdcall*)(unsigned);using Count=int(__stdcall*)(int*);auto init=reinterpret_cast<Init>(GetProcAddress(dll,"cuInit"));auto count=reinterpret_cast<Count>(GetProcAddress(dll,"cuDeviceGetCount"));int n{};bool ok=init&&count&&init(0)==0&&count(&n)==0&&n>0;FreeLibrary(dll);return ok;
 }
+std::vector<Packet> Encoder::encode12(ID3D12Resource*,LONGLONG,LONGLONG){winrt::throw_hresult(E_NOTIMPL);}
 }

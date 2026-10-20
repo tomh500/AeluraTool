@@ -53,7 +53,7 @@ void run_migration_tests(fs::path const& root) {
         aelura::hotkeys::Manager manager; manager.load(window, root / "keys.ini"); std::wstring error;
         const size_t hashIndex=5;
         check(manager.bindings.at(hashIndex).id == L"hash" && !manager.bindings.at(hashIndex).enabled, "hash hotkey must default to disabled");
-        check(manager.bindings.at(6).id==L"record"&&!manager.bindings.at(6).enabled&&manager.bindings.at(7).id==L"replay-save"&&!manager.bindings.at(7).enabled,"recording hotkeys must default to disabled");
+        check(manager.bindings.at(6).id==L"record"&&!manager.bindings.at(6).enabled&&manager.bindings.at(7).id==L"replay-save"&&manager.bindings.at(7).enabled,"manual recording defaults off; replay save must work without opening the toolbox");
         if (!manager.save(2, MOD_CONTROL | MOD_ALT, VK_F22, true, error)) { std::wcerr << error << L" Win32=" << GetLastError() << L" hwnd=" << window << L"\n"; throw std::runtime_error("binding failed"); }
         check(!manager.save(3, MOD_CONTROL | MOD_ALT, VK_F22, true, error), "duplicate binding accepted");
         check(manager.bindings[2].registered && !manager.bindings[3].registered, "binding rollback failed");
@@ -69,10 +69,12 @@ void run_migration_tests(fs::path const& root) {
             WritePrivateProfileStringW(L"Capture", L"Enabled", L"0", upgrade.c_str()) &&
             WritePrivateProfileStringW(L"Appearance", L"Theme", L"2", upgrade.c_str()), "upgrade fixture failed");
         manager.load(window, upgrade);
-        check(manager.bindings[0].key == 'Z' && !manager.bindings[0].enabled && !manager.bindings.back().enabled, "hash upgrade changed existing settings");
+        check(manager.bindings[0].key == 'Z' && !manager.bindings[0].enabled && !manager.bindings[hashIndex].enabled, "hash upgrade changed existing settings");
+        check(manager.save(7,MOD_CONTROL|MOD_ALT,'F',false,error),"explicit replay shortcut disable failed");
         check(manager.save(hashIndex, MOD_CONTROL | MOD_ALT, VK_F21, true, error), "hash binding save failed");
         check(GetPrivateProfileIntW(L"Appearance", L"Theme", 0, upgrade.c_str()) == 2, "hash save changed theme");
         manager.release(); manager.load(window, upgrade);
+        check(!manager.bindings[7].enabled&&!manager.bindings[7].registered,"saved replay shortcut disable was overwritten by default");
         check(manager.bindings.at(hashIndex).id == L"hash" && manager.bindings.at(hashIndex).registered && manager.bindings[0].key == 'Z', "hash binding restore failed");
         aelura::i18n::select(2); manager.localize();
         check(manager.bindings.at(hashIndex).title == L"Open file hash verifier" && manager.bindings.at(hashIndex).category == L"Files", "hash binding localization failed");

@@ -259,6 +259,7 @@ using aelura::i18n::tr;
         if (msg == WM_GETMINMAXINFO) { auto info = reinterpret_cast<MINMAXINFO*>(lp); info->ptMinTrackSize = {1000, 680}; return 0; }
         if (msg == WM_CLOSE) { self->RequestClose(); return 0; }
         if (msg == WM_HOTKEY) {
+            if(self->recordingCloseBusy_)return 0;
             self->FinishStartup();
             for (auto const& b : self->hotkeys_.bindings) if (b.registered && wp == static_cast<WPARAM>(b.slot)) {
                 if(b.id==L"record")self->recording_->toggle();else if(b.id==L"replay-save")self->recording_->replaySave();

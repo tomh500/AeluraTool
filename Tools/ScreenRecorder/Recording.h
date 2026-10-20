@@ -15,11 +15,13 @@ namespace aelura::recording {
 enum class Codec { H264, HEVC };
 enum class Encoder { CPU, GPU };
 enum class Scaling { Nearest, Linear, Cubic, Fant };
+enum class Graphics { Direct3D11, Direct3D12 };
 enum class State { Idle, Starting, Recording, Paused, Stopping, Completed, Failed };
 struct Options {
     unsigned fps{30}, bitrate{12000000}, scale{100}, replaySeconds{300};
     Codec codec{Codec::H264}; Encoder encoder{Encoder::CPU}; Scaling scaling{Scaling::Cubic};
-    bool microphone{}, cursor{true}, performanceBeta{};
+    Graphics graphics{Graphics::Direct3D11};
+    bool microphone{}, cursor{true}, performanceBeta{}, replayEnabled{};
     std::filesystem::path directory;
 };
 struct Snapshot {
@@ -29,6 +31,8 @@ struct Snapshot {
     std::filesystem::path output, recovery;
     unsigned savedGeneration{};
     int optimizedVendor{};bool cuda{};HRESULT optimizationError{S_OK};std::wstring adapter;
+    bool windowCapture{}, windowMinimized{}; DWORD processId{}; std::wstring windowTitle;
+    bool nativeDx12{};
 };
 Options load(std::filesystem::path const& file);
 void save(std::filesystem::path const& file, Options const& options);
@@ -43,8 +47,9 @@ class Session {
 public:
     Session(); ~Session();
     Session(Session const&) = delete; Session& operator=(Session const&) = delete;
-    bool start(Options const&, RECT, bool replay);
-    void pause(); void stop(); bool saveReplay();
+    bool start(Options const&, RECT, bool replay, HWND window = nullptr);
+    void pause(); void stop(bool discardReplay = false); bool saveReplay();
+    void wait();
     void cancelSave(); bool recover(std::filesystem::path const& cache,std::filesystem::path const& directory);
     Snapshot snapshot() const;
     bool busy() const;

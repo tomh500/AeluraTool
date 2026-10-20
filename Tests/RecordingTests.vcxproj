@@ -13,6 +13,9 @@
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Media.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Remux.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Gpu.cpp"/>
+  <ClCompile Include="..\Tools\ScreenRecorder\Recording.Window.cpp"/>
+  <ClCompile Include="..\Tools\ScreenRecorder\Recording.Dx12.cpp"/>
+  <ClCompile Include="..\Tools\ScreenRecorder\Recording.Nvenc12.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Nvenc.cpp"/>
   <ClCompile Include="..\Tools\ScreenRecorder\Recording.Amf.cpp"/>
  </ItemGroup>

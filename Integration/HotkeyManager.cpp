@@ -24,7 +24,7 @@ void Manager::load(HWND hwnd, std::filesystem::path path) {
         {L"print", tr("keys.print"), tr("nav.images"), 0, VK_SNAPSHOT, false},
         {L"hash", tr("keys.hash"), tr("nav.files"), MOD_CONTROL | MOD_ALT, 'H', false},
         {L"record", tr("record.hotkey"), tr("nav.images"), MOD_CONTROL | MOD_ALT, 'R', false},
-        {L"replay-save", tr("record.save_replay"), tr("nav.images"), MOD_CONTROL | MOD_ALT, 'F', false}};
+        {L"replay-save", tr("record.save_replay"), tr("nav.images"), MOD_CONTROL | MOD_ALT, 'F', true}};
     for (size_t i = 0; i < bindings.size(); ++i) {
         auto& b = bindings[i]; b.slot = 200 + static_cast<int>(i) * 2;
         const auto section = L"Hotkey." + b.id;

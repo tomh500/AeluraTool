@@ -168,5 +168,6 @@ void Writer::frame(std::vector<BYTE> const& data,LONGLONG t,LONGLONG d) { auto s
 void Writer::sound(std::vector<int16_t> const& data,LONGLONG t) { if(data.empty() || audio==MAXDWORD) return; auto s=sample(data.data(),static_cast<DWORD>(data.size()*2),t,LONGLONG(data.size()/channels)*10000000/rate); check_hresult(sink->WriteSample(audio,s.Get())); }
 void Writer::packets(std::vector<gpu::Packet> const& packets){for(auto const& p:packets){auto s=sample(p.data.data(),static_cast<DWORD>(p.data.size()),p.time,p.duration);check_hresult(s->SetUINT32(MFSampleExtension_CleanPoint,p.key));check_hresult(sink->WriteSample(video,s.Get()));}}
 void Writer::texture(ID3D11Texture2D* t,LONGLONG time,LONGLONG duration){packets(native->encode(t,time,duration));}
+void Writer::texture12(ID3D12Resource* t,LONGLONG time,LONGLONG duration){packets(native->encode12(t,time,duration));}
 void Writer::finish() { if(native)packets(native->flush());check_hresult(sink->Finalize()); sink.Reset(); }
 }

@@ -14,6 +14,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cmath>
+#include <dwmapi.h>
 namespace aelura::recording {
 using namespace winrt;using namespace Microsoft::UI::Xaml;using namespace Controls;
 using aelura::i18n::tr;
@@ -23,12 +24,14 @@ std::wstring elapsed(double seconds){auto n=unsigned(seconds);std::wostringstrea
 }
 struct Panel::Impl : std::enable_shared_from_this<Impl> {
     HWND main{};std::filesystem::path config;std::function<void()> restore;std::function<HWND()> captureHost;
-    Session session;Notification notification;Options options;ElementTheme requested{};unsigned seen{};bool localizing{},closing{},syncReplay{},previewLoading{};char const* issueKey{};
+    Session session,replaySession;Notification notification;Options options;ElementTheme requested{};unsigned seen{},seenReplay{};bool localizing{},closing{},syncReplay{},previewLoading{},quitting{},autoReplay{},pickingWindow{};char const* issueKey{};
+    std::filesystem::path latestOutput;
+    ContentDialog windowDialog{nullptr};
     std::unique_ptr<Selector> selector;bool selectPending{};std::chrono::steady_clock::time_point selectAt;
-    StackPanel root{nullptr};StackPanel settings{nullptr};ComboBox fps,codec,encoder,scaling,scale;
+    StackPanel root{nullptr};StackPanel settings{nullptr};ComboBox fps,codec,encoder,scaling,scale,graphics;
     NumberBox bitrate,seconds;ToggleSwitch microphone,cursor,beta,replay;
-    TextBox directory;Button browse,start,stop,pause,saveReplay,preview,folder,recovery,recover,cancelSave;
-    TextBlock hint,state,region,details,betaHint;ProgressRing progress;
+    TextBox directory;Button browse,start,windowStart,stop,pause,saveReplay,preview,folder,recovery,recover,cancelSave;
+    TextBlock hint,state,region,details,betaHint,replayState,graphicsHint;ProgressRing progress;
     Window floating{nullptr},previewWindow{nullptr};HWND floatingHwnd{};Grid floatingRoot{nullptr};
     TextBlock floatState;Button floatPause,floatStop,floatSave,floatOpen;
     MediaPlayerElement player{nullptr};Windows::Media::Playback::MediaPlayer mediaPlayer{nullptr};
@@ -36,6 +39,13 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
     Impl(HWND h,std::filesystem::path const& path,std::function<void()> callback,std::function<HWND()> host):main(h),config(path),restore(std::move(callback)),captureHost(std::move(host)),notification(h) {
         options=load(config);
         if(options.directory.empty()) {PWSTR p{};check_hresult(SHGetKnownFolderPath(FOLDERID_Videos,0,nullptr,&p));options.directory=std::filesystem::path(p)/L"AeluraTool";CoTaskMemFree(p);}
+        // Older development deployments accidentally persisted an automated UI
+        // fixture folder. Do not move or delete any videos in that directory.
+        if(options.directory.filename().wstring().starts_with(L"AeluraRecordingUI-")&&options.directory.parent_path()==std::filesystem::temp_directory_path()){
+            PWSTR p{};check_hresult(SHGetKnownFolderPath(FOLDERID_Videos,0,nullptr,&p));options.directory=std::filesystem::path(p)/L"AeluraTool";CoTaskMemFree(p);
+            try{save(config,options);}catch(...){issueKey="record.settings_failed";}
+        }
+        autoReplay=options.replayEnabled;
         root=StackPanel();root.Spacing(14);
         hint=TextBlock();hint.TextWrapping(TextWrapping::Wrap);root.Children().Append(hint);
         region=TextBlock();region.TextWrapping(TextWrapping::Wrap);root.Children().Append(region);
@@ -48,23 +58,29 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         for(int i=0;i<4;++i)scaling.Items().Append(box_value(L""));scaling.SelectedIndex(int(options.scaling));scaling.Width(180);
         for(auto n:{100,75,50,25}){scale.Items().Append(box_value(std::to_wstring(n)+L"%"));if(n==int(options.scale))scale.SelectedIndex(int(scale.Items().Size())-1);}if(scale.SelectedIndex()<0)scale.SelectedIndex(0);scale.Width(150);
         row({fps,bitrate,seconds});row({codec,encoder});row({scale,scaling});
+        graphics.Width(350);for(int i=0;i<2;++i)graphics.Items().Append(box_value(L""));graphics.SelectedIndex(int(options.graphics));settings.Children().Append(graphics);
+        graphicsHint=TextBlock();graphicsHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(graphicsHint);
         microphone.IsOn(options.microphone);cursor.IsOn(options.cursor);row({microphone,cursor});
         beta.IsOn(options.performanceBeta);settings.Children().Append(beta);betaHint=TextBlock();betaHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(betaHint);
-        encoder.SelectionChanged([this](auto const&,auto const&){if(localizing)return;beta.IsEnabled(encoder.SelectedIndex()==1);if(encoder.SelectedIndex()!=1)beta.IsOn(false);});beta.IsEnabled(encoder.SelectedIndex()==1);
+        encoder.SelectionChanged([this](auto const&,auto const&){if(localizing)return;beta.IsEnabled(encoder.SelectedIndex()==1);if(encoder.SelectedIndex()!=1){beta.IsOn(false);graphics.SelectedIndex(0);}});beta.IsEnabled(encoder.SelectedIndex()==1);
+        graphics.SelectionChanged([this](auto const&,auto const&){if(!localizing&&graphics.SelectedIndex()==1){encoder.SelectedIndex(1);beta.IsOn(true);}});
+        beta.Toggled([this](auto const&,auto const&){if(!localizing&&!beta.IsOn())graphics.SelectedIndex(0);});
         directory.Text(options.directory.wstring());directory.IsReadOnly(true);settings.Children().Append(directory);settings.Children().Append(browse);
         root.Children().Append(settings);
         root.Children().Append(replay);
-        StackPanel actions;actions.Orientation(Orientation::Horizontal);actions.Spacing(8);for(auto b:{start,pause,stop,saveReplay})actions.Children().Append(b);root.Children().Append(actions);
+        replayState=TextBlock();replayState.TextWrapping(TextWrapping::Wrap);root.Children().Append(replayState);
+        StackPanel actions;actions.Orientation(Orientation::Horizontal);actions.Spacing(8);for(auto b:{start,windowStart,pause,stop,saveReplay})actions.Children().Append(b);root.Children().Append(actions);
         progress=ProgressRing();progress.Width(24);progress.Height(24);progress.HorizontalAlignment(HorizontalAlignment::Left);root.Children().Append(progress);
         state=TextBlock();state.TextWrapping(TextWrapping::Wrap);root.Children().Append(state);root.Children().Append(cancelSave);details=TextBlock();details.TextWrapping(TextWrapping::Wrap);root.Children().Append(details);
         StackPanel outputs;outputs.Orientation(Orientation::Horizontal);outputs.Spacing(8);for(auto b:{preview,folder,recovery,recover})outputs.Children().Append(b);root.Children().Append(outputs);
         browse.Click([this](auto const&,auto const&){pick();});start.Click([this](auto const&,auto const&){select();});replay.Toggled([this](auto const&,auto const&){if(!syncReplay)toggleReplay();});
         pause.Click([this](auto const&,auto const&){session.pause();});stop.Click([this](auto const&,auto const&){session.stop();});saveReplay.Click([this](auto const&,auto const&){saveCurrentReplay();});
-        preview.Click([this](auto const&,auto const&){showPreview();});folder.Click([this](auto const&,auto const&){auto path=session.snapshot().output.parent_path();if(path.empty())path=options.directory;ShellExecuteW(main,L"open",path.c_str(),nullptr,nullptr,SW_SHOWNORMAL);});
-        recovery.Click([this](auto const&,auto const&){auto path=session.snapshot().recovery;ShellExecuteW(main,L"open",path.c_str(),nullptr,nullptr,SW_SHOWNORMAL);});
-        cancelSave.Click([this](auto const&,auto const&){session.cancelSave();});
+        windowStart.Click([this](auto const&,auto const&){chooseWindow();});
+        preview.Click([this](auto const&,auto const&){showPreview();});folder.Click([this](auto const&,auto const&){auto path=latestOutput.parent_path();if(path.empty())path=options.directory;ShellExecuteW(main,L"open",path.c_str(),nullptr,nullptr,SW_SHOWNORMAL);});
+        recovery.Click([this](auto const&,auto const&){auto path=replaySession.snapshot().recovery;if(path.empty())path=session.snapshot().recovery;ShellExecuteW(main,L"open",path.c_str(),nullptr,nullptr,SW_SHOWNORMAL);});
+        cancelSave.Click([this](auto const&,auto const&){replaySession.cancelSave();});
         recover.Click([this](auto const&,auto const&){
-            try{auto o=read();com_ptr<IFileOpenDialog> d;check_hresult(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(d.put())));DWORD flags{};check_hresult(d->GetOptions(&flags));check_hresult(d->SetOptions(flags|FOS_FILEMUSTEXIST|FOS_FORCEFILESYSTEM));COMDLG_FILTERSPEC filters[]={{tr("record.recovery"),L"*.json"}};check_hresult(d->SetFileTypes(1,filters));check_hresult(d->SetTitle(tr("record.recover_hint")));auto hr=d->Show(main);if(hr==HRESULT_FROM_WIN32(ERROR_CANCELLED))return;check_hresult(hr);com_ptr<IShellItem> item;check_hresult(d->GetResult(item.put()));PWSTR p{};check_hresult(item->GetDisplayName(SIGDN_FILESYSPATH,&p));std::filesystem::path path(p);CoTaskMemFree(p);session.recover(path,o.directory);seen=0;issueKey=nullptr;}catch(...){issueKey="record.recover_failed";}
+            try{auto o=read();com_ptr<IFileOpenDialog> d;check_hresult(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(d.put())));DWORD flags{};check_hresult(d->GetOptions(&flags));check_hresult(d->SetOptions(flags|FOS_FILEMUSTEXIST|FOS_FORCEFILESYSTEM));COMDLG_FILTERSPEC filters[]={{tr("record.recovery"),L"*.json"}};check_hresult(d->SetFileTypes(1,filters));check_hresult(d->SetTitle(tr("record.recover_hint")));auto hr=d->Show(main);if(hr==HRESULT_FROM_WIN32(ERROR_CANCELLED))return;check_hresult(hr);com_ptr<IShellItem> item;check_hresult(d->GetResult(item.put()));PWSTR p{};check_hresult(item->GetDisplayName(SIGDN_FILESYSPATH,&p));std::filesystem::path path(p);CoTaskMemFree(p);replaySession.recover(path,o.directory);seenReplay=0;issueKey=nullptr;}catch(...){issueKey="record.recover_failed";}
         });
         timer=Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread().CreateTimer();timer.Interval(std::chrono::milliseconds(100));
         localize();tick();
@@ -86,30 +102,65 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         attempt([&]{if(floating)floating.Close();});floating=nullptr;attempt([&]{if(previewWindow)previewWindow.Close();});previewWindow=nullptr;
     }
     ~Impl(){dispose();}
-    void saveCurrentReplay(){try{auto s=session.snapshot();if(s.replay&&s.state==State::Completed){if(session.recover(s.recovery,options.directory))seen=0;}else if(session.saveReplay())notification.update(session.snapshot(),requested);}catch(hresult_error const& e){diagnostics::failure("replay.save.ui",e.code(),e.message());issueKey="record.ui_failed";}catch(...){diagnostics::failure("replay.save.ui",E_FAIL);issueKey="record.ui_failed";}}
+    void saveCurrentReplay(){if(quitting)return;try{if(replaySession.saveReplay())notification.update(replaySession.snapshot(),requested);else issueKey="record.replay_not_ready";}catch(hresult_error const& e){diagnostics::failure("replay.save.ui",e.code(),e.message());issueKey="record.ui_failed";}catch(...){diagnostics::failure("replay.save.ui",E_FAIL);issueKey="record.ui_failed";}}
     void pick(){
         try{com_ptr<IFileOpenDialog> d;check_hresult(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(d.put())));DWORD flags{};check_hresult(d->GetOptions(&flags));check_hresult(d->SetOptions(flags|FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM));auto hr=d->Show(main);if(hr==HRESULT_FROM_WIN32(ERROR_CANCELLED))return;check_hresult(hr);com_ptr<IShellItem> i;check_hresult(d->GetResult(i.put()));PWSTR p{};check_hresult(i->GetDisplayName(SIGDN_FILESYSPATH,&p));directory.Text(p);CoTaskMemFree(p);}catch(hresult_error const& e){state.Text(e.message());}
     }
     Options read(){
-        if(fps.SelectedIndex()<0||fps.SelectedIndex()>=5||scale.SelectedIndex()<0||scale.SelectedIndex()>=4||codec.SelectedIndex()<0||encoder.SelectedIndex()<0||scaling.SelectedIndex()<0)throw hresult_invalid_argument();
+        if(fps.SelectedIndex()<0||fps.SelectedIndex()>=5||scale.SelectedIndex()<0||scale.SelectedIndex()>=4||codec.SelectedIndex()<0||encoder.SelectedIndex()<0||scaling.SelectedIndex()<0||graphics.SelectedIndex()<0||graphics.SelectedIndex()>1)throw hresult_invalid_argument();
         Options o=options;const unsigned rates[]{15,24,30,60,120},scales[]{100,75,50,25};o.fps=rates[fps.SelectedIndex()];
         if(!std::isfinite(bitrate.Value())||!std::isfinite(seconds.Value()))throw hresult_invalid_argument();
         o.bitrate=unsigned(bitrate.Value()*1000000);o.replaySeconds=unsigned(seconds.Value());o.scale=scales[scale.SelectedIndex()];
-        o.codec=Codec(codec.SelectedIndex());o.encoder=Encoder(encoder.SelectedIndex());o.scaling=Scaling(scaling.SelectedIndex());o.microphone=microphone.IsOn();o.cursor=cursor.IsOn();o.performanceBeta=beta.IsOn();o.directory=directory.Text().c_str();validate(o,{0,0,1920,1080});return o;
+        o.codec=Codec(codec.SelectedIndex());o.encoder=Encoder(encoder.SelectedIndex());o.scaling=Scaling(scaling.SelectedIndex());o.graphics=Graphics(graphics.SelectedIndex());o.microphone=microphone.IsOn();o.cursor=cursor.IsOn();o.performanceBeta=beta.IsOn();o.directory=directory.Text().c_str();validate(o,{0,0,1920,1080});return o;
     }
     void select(){
-        if(session.busy()||selector||selectPending)return;
+        if(quitting||session.busy()||selector||selectPending||pickingWindow)return;
         try{auto next=read();save(config,next);options=next;issueKey=nullptr;selectPending=true;selectAt=std::chrono::steady_clock::now()+std::chrono::milliseconds(220);ShowWindow(main,SW_MINIMIZE);}
         catch(...){issueKey="record.settings_failed";restore();}
     }
     void toggleReplay(){
-        if(!replay.IsOn()){if(session.snapshot().replay)session.stop();return;}
         try{
-            if(session.busy()||selector||selectPending)throw hresult_illegal_method_call();
-            auto next=read();save(config,next);options=next;issueKey=nullptr;
-            MONITORINFO mi{sizeof(mi)};if(!GetMonitorInfoW(MonitorFromWindow(main,MONITOR_DEFAULTTONEAREST),&mi))throw_last_error();
-            if(session.start(options,mi.rcMonitor,true)){seen=0;region.Text(std::to_wstring(mi.rcMonitor.right-mi.rcMonitor.left)+L" × "+std::to_wstring(mi.rcMonitor.bottom-mi.rcMonitor.top));}
-        }catch(...){issueKey="record.start_failed";syncReplay=true;replay.IsOn(false);syncReplay=false;}
+            if(quitting)return;
+            auto next=read();next.replayEnabled=replay.IsOn();save(config,next);options=next;issueKey=nullptr;
+            if(!options.replayEnabled)replaySession.stop(true);else startReplay();
+        }catch(...){issueKey="record.settings_failed";syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;}
+    }
+    void startReplay(){
+        if(quitting||replaySession.busy())return;
+        try{MONITORINFO mi{sizeof(mi)};if(!GetMonitorInfoW(MonitorFromWindow(main,MONITOR_DEFAULTTONEAREST),&mi))throw_last_error();replaySession.start(options,mi.rcMonitor,true);seenReplay=0;}
+        catch(hresult_error const& e){issueKey="record.replay_start_failed";diagnostics::failure("replay.start",e.code(),e.message());}
+        catch(...){issueKey="record.replay_start_failed";}
+    }
+    void showControls(){
+        floatingWindow();ShowWindow(floatingHwnd,SW_SHOWNOACTIVATE);SetWindowPos(floatingHwnd,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);
+    }
+    fire_and_forget chooseWindow(){
+        auto lifetime=shared_from_this();if(quitting||session.busy()||selector||selectPending||pickingWindow)co_return;
+        pickingWindow=true;struct Guard{bool& b;~Guard(){b=false;}} guard{pickingWindow};
+        try{
+            struct Candidate{HWND hwnd;std::wstring label;};std::vector<Candidate> windows;
+            EnumWindows([](HWND hwnd,LPARAM data)->BOOL{
+                auto& list=*reinterpret_cast<std::vector<Candidate>*>(data);DWORD pid{};GetWindowThreadProcessId(hwnd,&pid);
+                if(pid==GetCurrentProcessId()||!IsWindowVisible(hwnd)||(GetWindowLongPtrW(hwnd,GWL_EXSTYLE)&WS_EX_TOOLWINDOW)||GetWindowTextLengthW(hwnd)==0)return TRUE;
+                DWORD cloaked{};if(SUCCEEDED(DwmGetWindowAttribute(hwnd,DWMWA_CLOAKED,&cloaked,sizeof(cloaked)))&&cloaked)return TRUE;
+                wchar_t title[1024]{},path[32768]{};GetWindowTextW(hwnd,title,1024);std::wstring executable;
+                HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);if(process){DWORD length=32768;if(QueryFullProcessImageNameW(process,0,path,&length))executable=std::filesystem::path(path).filename().wstring();CloseHandle(process);}
+                list.push_back({hwnd,executable+L" · "+std::to_wstring(pid)+L" · "+title});return TRUE;
+            },reinterpret_cast<LPARAM>(&windows));
+            windowDialog=ContentDialog();windowDialog.XamlRoot(root.XamlRoot());windowDialog.RequestedTheme(requested);windowDialog.Title(box_value(tr("record.window_title")));windowDialog.PrimaryButtonText(tr("record.start"));windowDialog.CloseButtonText(tr("common.cancel"));windowDialog.IsPrimaryButtonEnabled(false);
+            StackPanel body;body.Spacing(12);TextBlock description;description.Text(tr("record.window_hint"));description.TextWrapping(TextWrapping::Wrap);body.Children().Append(description);
+            auto selected=std::make_shared<int>(-1);auto weakDialog=make_weak(windowDialog);StackPanel choices;choices.Spacing(8);
+            for(size_t index=0;index<windows.size();++index){
+                RadioButton choice;choice.GroupName(L"record-target");TextBlock text;text.Text(windows[index].label);text.TextWrapping(TextWrapping::Wrap);text.MaxWidth(430);choice.Content(text);
+                choice.Checked([selected,weakDialog,index](auto const&,auto const&){*selected=int(index);if(auto dialog=weakDialog.get())dialog.IsPrimaryButtonEnabled(true);});choices.Children().Append(choice);
+            }
+            ScrollViewer scroll;scroll.MaxHeight(340);scroll.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);scroll.Content(choices);body.Children().Append(scroll);windowDialog.Content(body);
+            auto result=co_await windowDialog.ShowAsync();windowDialog=nullptr;
+            if(quitting||result!=ContentDialogResult::Primary||*selected<0)co_return;
+            auto target=windows.at(*selected).hwnd;RECT bounds{};if(!IsWindow(target)||!GetWindowRect(target,&bounds))throw hresult_invalid_argument();
+            auto next=read();save(config,next);options=next;if(session.start(options,bounds,false,target)){seen=0;issueKey=nullptr;showControls();}
+        }catch(hresult_error const& e){diagnostics::failure("recording.window",e.code(),e.message());issueKey="record.window_failed";}
+        catch(...){issueKey="record.window_failed";}
     }
     void localize(){
         localizing=true;
@@ -117,9 +168,11 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         codec.Header(box_value(tr("record.codec")));encoder.Header(box_value(tr("record.encoder")));scaling.Header(box_value(tr("record.scaling")));scale.Header(box_value(tr("record.scale")));
         auto combo=[](ComboBox const& c,std::initializer_list<char const*> keys){auto index=c.SelectedIndex();c.Items().Clear();for(auto key:keys)c.Items().Append(box_value(tr(key)));c.SelectedIndex(index);};
         combo(codec,{"record.h264","record.h265"});combo(encoder,{"record.cpu","record.gpu"});combo(scaling,{"record.nearest","record.linear","record.cubic","record.fant"});
+        combo(graphics,{"record.graphics11","record.graphics12"});graphics.Header(box_value(tr("record.graphics")));graphicsHint.Text(tr("record.dx12_hint"));
         microphone.Header(box_value(tr("record.microphone")));cursor.Header(box_value(tr("record.cursor")));beta.Header(box_value(tr("record.beta")));betaHint.Text(tr("record.beta_hint"));
         for(auto t:{microphone,cursor,beta,replay}){t.OnContent(box_value(tr("common.enabled")));t.OffContent(box_value(tr("common.disabled")));}
         replay.Header(box_value(tr("record.replay_toggle")));
+        label(windowStart,"record.window_select");
         directory.Header(box_value(tr("record.directory")));label(browse,"record.browse");label(start,"record.select");label(stop,"record.stop");label(saveReplay,"record.save_replay");label(preview,"record.preview");label(folder,"record.open_folder");label(recovery,"record.recovery");
         label(recover,"record.recover");label(cancelSave,"record.cancel_save");
         if(floating){floating.Title(tr("record.title"));label(floatStop,"record.stop");label(floatSave,"record.save_replay");label(floatOpen,"record.open");}
@@ -140,7 +193,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
     fire_and_forget showPreview(){
         auto lifetime=shared_from_this();if(closing||previewLoading)co_return;
         previewLoading=true;struct LoadingGuard{bool& value;~LoadingGuard(){value=false;}} loadingGuard{previewLoading};
-        auto output=session.snapshot().output;if(output.empty())co_return;
+        auto output=latestOutput;if(output.empty())co_return;
         try{
             if(!previewWindow){previewWindow=Window();previewWindow.Title(tr("record.preview"));Grid g=Markup::XamlReader::Load(LR"(<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"/>)").as<Grid>();g.RequestedTheme(requested);player=MediaPlayerElement();player.AreTransportControlsEnabled(true);g.Children().Append(player);previewWindow.Content(g);previewWindow.AppWindow().Resize({960,600});auto weak=weak_from_this();previewWindow.Closed([weak](auto const&,WindowEventArgs const& e){if(auto self=weak.lock();self&&!self->closing){e.Handled(true);if(self->mediaPlayer)self->mediaPlayer.Pause();self->previewWindow.AppWindow().Hide();}});}
             auto file=co_await Windows::Storage::StorageFile::GetFileFromPathAsync(output.wstring());
@@ -151,30 +204,42 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         }catch(...){if(!closing)issueKey="record.preview_failed";}
     }
     void tick(){
+        // A modal picker owns focus and its automation tree until it closes.
+        // Repeatedly disabling/relabeling its underlying page can reenter XAML
+        // focus/automation processing. Recording workers continue independently.
+        if(pickingWindow&&!quitting)return;
+        if(autoReplay&&!quitting){autoReplay=false;startReplay();}
         if(selectPending&&std::chrono::steady_clock::now()>=selectAt){selectPending=false;try{selector=std::make_unique<Selector>(captureHost);}catch(...){issueKey="record.select_failed";restore();}}
         if(selector)selector->poll();
-        if(selector&&selector->done){auto selected=selector->result;auto error=selector->error;selector.reset();if(FAILED(error))issueKey="record.select_failed";if(selected){try{session.start(options,*selected,false);seen=0;region.Text(std::to_wstring(selected->left)+L", "+std::to_wstring(selected->top)+L" · "+std::to_wstring(selected->right-selected->left)+L" × "+std::to_wstring(selected->bottom-selected->top));floatingWindow();ShowWindow(floatingHwnd,SW_SHOWNOACTIVATE);SetWindowPos(floatingHwnd,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);}catch(...){issueKey="record.start_failed";restore();}}else restore();}
+        if(selector&&selector->done){auto selected=selector->result;auto error=selector->error;selector.reset();if(FAILED(error))issueKey="record.select_failed";if(selected){try{session.start(options,*selected,false);seen=0;region.Text(std::to_wstring(selected->left)+L", "+std::to_wstring(selected->top)+L" · "+std::to_wstring(selected->right-selected->left)+L" × "+std::to_wstring(selected->bottom-selected->top));showControls();}catch(...){issueKey="record.start_failed";restore();}}else if(!quitting)restore();}
         auto s=session.snapshot();const bool running=s.state==State::Recording||s.state==State::Paused;const bool busy=session.busy();
-        notification.update(s,requested);
+        auto rs=replaySession.snapshot();if(!quitting)notification.update(rs,requested);
+        auto replayText=std::wstring(tr(rs.state==State::Failed?"record.replay_start_failed":rs.state==State::Starting?"record.starting":rs.state==State::Stopping?"record.stopping":rs.state==State::Recording?"record.buffering":"record.replay_off"));
+        if(rs.state==State::Recording)replayText+=L" · "+elapsed(rs.bufferedSeconds)+L" · "+std::to_wstring(rs.width)+L" × "+std::to_wstring(rs.height);
+        if(rs.saving)replayText+=L" · "+std::wstring(tr("record.saving"));if(FAILED(rs.error)){std::wostringstream code;code<<L" · 0x"<<std::hex<<unsigned(rs.error);replayText+=code.str();}replayState.Text(replayText);
         for(auto const& child:settings.Children()) {
-            if(auto control=child.try_as<Control>())control.IsEnabled(!busy&&!selector&&!selectPending);
-            if(auto row=child.try_as<StackPanel>())for(auto const& item:row.Children())if(auto control=item.try_as<Control>())control.IsEnabled(!busy&&!selector&&!selectPending);
+            if(auto control=child.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
+            if(auto row=child.try_as<StackPanel>())for(auto const& item:row.Children())if(auto control=item.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
         }
-        beta.IsEnabled(!busy&&encoder.SelectedIndex()==1);
-        start.IsEnabled(!busy&&!selector&&!selectPending);replay.IsEnabled((start.IsEnabled()||(s.replay&&s.state==State::Recording))&&s.state!=State::Stopping);syncReplay=true;replay.IsOn(s.replay&&(s.state==State::Starting||s.state==State::Recording));syncReplay=false;pause.IsEnabled(running);stop.IsEnabled(running||s.state==State::Starting);pause.Visibility(s.replay?Visibility::Collapsed:Visibility::Visible);stop.Visibility(s.replay?Visibility::Collapsed:Visibility::Visible);saveReplay.IsEnabled(s.replay&&(s.state==State::Recording||s.state==State::Completed)&&!s.saving&&s.frames>0);
+        beta.IsEnabled(!quitting&&!busy&&encoder.SelectedIndex()==1);
+        start.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);windowStart.IsEnabled(start.IsEnabled()&&graphics.SelectedIndex()==0);replay.IsEnabled(!quitting&&rs.state!=State::Stopping);syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;pause.IsEnabled(!quitting&&running);stop.IsEnabled(!quitting&&(running||s.state==State::Starting));saveReplay.IsEnabled(!quitting&&rs.state==State::Recording&&!rs.saving&&rs.frames>0);
         label(pause,s.state==State::Paused?"record.resume":"record.pause");progress.IsActive(s.state==State::Starting||s.state==State::Stopping||s.saving);progress.Visibility(progress.IsActive()?Visibility::Visible:Visibility::Collapsed);
         const char* key=s.state==State::Starting?"record.starting":s.state==State::Paused?"record.paused":s.state==State::Stopping?"record.stopping":s.state==State::Failed?"record.failed":s.state==State::Completed?"record.completed":s.state==State::Recording?(s.replay?"record.buffering":"record.recording"):"record.idle";
         auto text=std::wstring(tr(key))+L" · "+elapsed(s.seconds);if(s.replay)text+=L" · "+std::wstring(tr("record.buffer"))+elapsed(s.bufferedSeconds);if(s.saving)text+=L" · "+std::wstring(tr("record.saving"))+L" "+std::to_wstring(unsigned(s.saveProgress*100))+L"%";
-        cancelSave.Visibility(s.saving?Visibility::Visible:Visibility::Collapsed);recover.IsEnabled(!busy);
+        cancelSave.Visibility(rs.saving?Visibility::Visible:Visibility::Collapsed);recover.IsEnabled(!quitting&&!replaySession.busy());
         if(s.error==E_ABORT)text+=L"\n"+std::wstring(tr("record.save_canceled"));
         else if(FAILED(s.error)){std::wostringstream error;error<<L" · 0x"<<std::hex<<unsigned(s.error);text+=error.str();text+=L"\n"+std::wstring(tr(running?"record.save_failed":"record.codec_hint"));}
         if(issueKey)text+=L"\n"+std::wstring(tr(issueKey));state.Text(text);
+        if(quitting)state.Text(tr("record.exiting"));
         std::wstring detail=s.output.wstring();if(s.width)detail+=L"\n"+std::to_wstring(s.width)+L" × "+std::to_wstring(s.height)+L" · "+tr("record.dropped")+std::to_wstring(s.dropped);details.Text(detail);
         if(s.width){detail+=L"\n"+std::wstring(tr(s.optimizedVendor==0x10de?"record.optimized_nvenc":s.optimizedVendor==0x1002?"record.optimized_amf":FAILED(s.optimizationError)?"record.fallback":"record.standard"));if(!s.adapter.empty())detail+=L" · "+s.adapter;if(s.optimizedVendor==0x10de)detail+=L"\n"+std::wstring(tr(s.cuda?"record.cuda_available":"record.cuda_unavailable"));if(FAILED(s.optimizationError)){std::wostringstream code;code<<L" · 0x"<<std::hex<<unsigned(s.optimizationError);detail+=code.str();}details.Text(detail);}
-        preview.IsEnabled(!s.output.empty());folder.IsEnabled(!s.output.empty());recovery.IsEnabled(!s.recovery.empty());
+        if(s.nativeDx12){detail+=L"\n"+std::wstring(tr("record.graphics12"));details.Text(detail);}
+        if(s.windowCapture){detail+=L"\n"+s.windowTitle+L" · "+std::to_wstring(s.processId);if(s.windowMinimized)detail+=L"\n"+std::wstring(tr("record.window_minimized"));details.Text(detail);}
+        preview.IsEnabled(!quitting&&!latestOutput.empty());folder.IsEnabled(!latestOutput.empty());recovery.IsEnabled(!s.recovery.empty()||!rs.recovery.empty());
         if(floating){floatState.Text(std::wstring(tr(key))+L" · "+elapsed(s.seconds));floatPause.IsEnabled(pause.IsEnabled());floatStop.IsEnabled(stop.IsEnabled());floatSave.IsEnabled(saveReplay.IsEnabled());floatSave.Visibility(s.replay?Visibility::Visible:Visibility::Collapsed);label(floatPause,s.state==State::Paused?"record.resume":"record.pause");if(!busy||s.replay)ShowWindow(floatingHwnd,SW_HIDE);}
-        if(s.savedGeneration!=seen){seen=s.savedGeneration;if(!s.replay){restore();showPreview();}}
-        if(s.state==State::Failed&&lastState!=s.state)restore();lastState=s.state;
+        if(s.savedGeneration!=seen){seen=s.savedGeneration;latestOutput=s.output;if(!quitting){restore();showPreview();}}
+        if(rs.savedGeneration!=seenReplay){seenReplay=rs.savedGeneration;latestOutput=rs.output;}
+        if(!quitting&&s.state==State::Failed&&lastState!=s.state)restore();lastState=s.state;
     }
     State lastState{State::Idle};
 };
@@ -183,7 +248,12 @@ Panel::~Panel(){impl_->dispose();}
 UIElement Panel::content()const{return impl_->root;}
 void Panel::localize(){impl_->localize();}
 void Panel::theme(ElementTheme t){impl_->requested=t;if(impl_->floatingRoot)impl_->floatingRoot.RequestedTheme(t);if(impl_->previewWindow)impl_->previewWindow.Content().as<FrameworkElement>().RequestedTheme(t);}
-void Panel::toggle(){if(impl_->session.busy())impl_->session.stop();else impl_->select();}
+void Panel::toggle(){if(impl_->quitting)return;if(impl_->session.busy())impl_->session.stop();else impl_->select();}
 void Panel::replaySave(){impl_->saveCurrentReplay();}
-bool Panel::busy()const{return impl_->session.busy()||impl_->selectPending||bool(impl_->selector);}
+bool Panel::busy()const{return impl_->session.busy()||impl_->replaySession.busy()||impl_->selectPending||bool(impl_->selector)||impl_->pickingWindow;}
+Windows::Foundation::IAsyncAction Panel::shutdown(){
+    auto self=impl_;self->quitting=true;self->autoReplay=false;self->selectPending=false;self->selector.reset();if(self->windowDialog)self->windowDialog.Hide();
+    self->session.stop();self->replaySession.stop(true);self->tick();auto ui=apartment_context();
+    co_await resume_background();self->session.wait();self->replaySession.wait();co_await ui;self->dispose();
+}
 }

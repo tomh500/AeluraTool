@@ -10,6 +10,7 @@ public:
     winrt::Microsoft::UI::Xaml::UIElement content() const;
     void localize(); void theme(winrt::Microsoft::UI::Xaml::ElementTheme);
     void toggle(); void replaySave(); bool busy() const;
+    winrt::Windows::Foundation::IAsyncAction shutdown();
 private:
     struct Impl;std::shared_ptr<Impl> impl_;
 };

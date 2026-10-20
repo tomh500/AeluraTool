@@ -32,7 +32,7 @@ namespace winrt::AeluraTool::implementation {
         bool restoringNavigation_{};
         aelura::desktop::TrayIcon tray_;
         int closeAction_{};
-        bool closeDialogOpen_{}, startupBusy_{}, startupActivation_{};
+        bool closeDialogOpen_{}, startupBusy_{}, startupActivation_{}, recordingCloseBusy_{};
         bool moveBusy_{};
         enum class FileTask { None, Migration, Hash };
         FileTask fileTask_{FileTask::None};

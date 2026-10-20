@@ -165,6 +165,9 @@
     <ClCompile Include="Tools\ScreenRecorder\Recording.Media.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Remux.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Gpu.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Window.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Dx12.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Nvenc12.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Nvenc.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\ScreenRecorder\Recording.Amf.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\DesktopLifecycle.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>

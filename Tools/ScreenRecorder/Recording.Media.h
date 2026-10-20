@@ -33,6 +33,7 @@ struct Writer {
     Writer(Options const&, unsigned width, unsigned height, Microphone const&, std::filesystem::path const&,gpu::Pipeline* = nullptr,std::unique_ptr<gpu::Encoder> = {});
     void frame(std::vector<BYTE> const&, LONGLONG time, LONGLONG duration);
     void texture(ID3D11Texture2D*,LONGLONG,LONGLONG);
+    void texture12(ID3D12Resource*,LONGLONG,LONGLONG);
     void packets(std::vector<gpu::Packet> const&);
     void sound(std::vector<int16_t> const&, LONGLONG time);
     void finish();

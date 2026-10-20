@@ -1,4 +1,5 @@
 #include "Recording.Media.h"
+#include "Recording.Dx12.h"
 #include <winrt/base.h>
 #include <shlobj.h>
 #include <atomic>
@@ -32,12 +33,13 @@ HRESULT exceptionCode() { try { throw; } catch(winrt::hresult_error const& e) { 
 }
 struct Session::Impl {
     mutable std::mutex mutex; Snapshot status;
-    std::atomic<bool> stopping{},paused{},savingRequest{},cancelExport{};
+    std::atomic<bool> stopping{},paused{},savingRequest{},cancelExport{},discardOnStop{};
+    std::atomic<bool> finished{true};
     std::thread worker,exporter;
-    ~Impl() { stopping=true; if(worker.joinable()) worker.join(); if(exporter.joinable()) exporter.join(); }
+    ~Impl() { discardOnStop=true;stopping=true; if(worker.joinable()) worker.join(); if(exporter.joinable()) exporter.join(); }
     template<class F> void update(F&& f) { std::lock_guard<std::mutex> lock(mutex); f(status); }
     Snapshot read() const { std::lock_guard<std::mutex> lock(mutex); return status; }
-    void run(Options o,RECT r,bool replay) {
+    void run(Options o,RECT r,bool replay,HWND window) {
         std::deque<std::shared_ptr<Segment>> segments;
         std::shared_ptr<Segment> current;
         std::filesystem::path cache,partial,final;
@@ -48,14 +50,21 @@ struct Session::Impl {
             update([&](auto& s) { s.recovery=cache; });
             final=o.directory/(L"Recording-"+unique()+L".mp4"); partial=final; partial.replace_extension(L".partial.mp4");
             std::unique_ptr<gpu::Pipeline> pipeline;
-            if(o.performanceBeta && o.encoder==Encoder::GPU) {
-                try {pipeline=std::make_unique<gpu::Pipeline>(o,r);const bool cuda=pipeline->vendor==0x10de && gpu::cudaAvailable();update([&](auto& s){s.optimizedVendor=int(pipeline->vendor);s.adapter=pipeline->adapter;s.cuda=cuda;});}
+            std::unique_ptr<gpu::Dx12Pipeline> pipeline12;
+            bool native=o.performanceBeta&&o.encoder==Encoder::GPU;
+            if(o.graphics==Graphics::Direct3D12){
+                if(window||!native)winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+                pipeline12=std::make_unique<gpu::Dx12Pipeline>(o,r);update([&](auto& s){s.nativeDx12=true;s.optimizedVendor=int(pipeline12->vendor);s.adapter=pipeline12->adapter;});
+            }
+            if(!pipeline12&&(window||native)) {
+                try {pipeline=std::make_unique<gpu::Pipeline>(o,r,window);const bool cuda=pipeline->vendor==0x10de && gpu::cudaAvailable();update([&](auto& s){s.optimizedVendor=native?int(pipeline->vendor):0;s.adapter=pipeline->adapter;s.cuda=cuda;});}
                 catch(...){const auto hr=exceptionCode();update([&](auto& s){s.optimizationError=hr;});}
             }
+            if(window&&!pipeline)winrt::throw_hresult(read().optimizationError);
             std::unique_ptr<media::Frames> frames;
-            if(!pipeline)frames=std::make_unique<media::Frames>(o,r);
+            if(!pipeline&&!pipeline12)frames=std::make_unique<media::Frames>(o,r);
             media::Microphone mic(o.microphone);
-            const auto width=pipeline?pipeline->width:frames->width,height=pipeline?pipeline->height:frames->height;
+            const auto width=pipeline12?pipeline12->width:pipeline?pipeline->width:frames->width,height=pipeline12?pipeline12->height:pipeline?pipeline->height:frames->height;
             update([&](auto& s) { s.width=width; s.height=height; });
             std::unique_ptr<media::Writer> writer;
             uint64_t tick=0,startTick=0,audioFrames=0;
@@ -74,10 +83,10 @@ struct Session::Impl {
                 journal(); // Recovery metadata exists before writing the first byte.
                 HANDLE h=CreateFileW(current->path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
                 if(h==INVALID_HANDLE_VALUE) winrt::throw_last_error(); CloseHandle(h);
-                try{writer=std::make_unique<media::Writer>(o,width,height,mic,current->path,pipeline.get());}
+                try{writer=std::make_unique<media::Writer>(o,width,height,mic,current->path,native?pipeline.get():nullptr,pipeline12?gpu::nvidia12(o,pipeline12->device.Get(),width,height):nullptr);}
                 catch(...){
                     if(!pipeline || tick)throw;
-                    const auto hr=exceptionCode();pipeline.reset();frames=std::make_unique<media::Frames>(o,r);
+                    const auto hr=exceptionCode();native=false;if(!window){pipeline.reset();frames=std::make_unique<media::Frames>(o,r);}
                     update([&](auto& s){s.optimizationError=hr;s.optimizedVendor=0;});
                     writer=std::make_unique<media::Writer>(o,width,height,mic,current->path);
                 }
@@ -106,14 +115,20 @@ struct Session::Impl {
                 if(wasPaused) { epoch+=now-pauseStart; wasPaused=false; update([](auto& s){s.state=State::Recording;}); }
                 auto due=epoch+nanoseconds(tick*1000000000ULL/o.fps);
                 if(now<due) { std::this_thread::sleep_for(std::min(milliseconds(5),duration_cast<milliseconds>(due-now)+milliseconds(1))); continue; }
-                const auto actual=uint64_t(duration_cast<nanoseconds>(now-epoch).count())*o.fps/1000000000ULL;
-                if(actual>tick) { const auto dropped=actual-tick; tick=actual; update([&](auto& s){s.dropped+=dropped;}); }
                 // Refresh the virtual desktop each frame; a removed monitor must stop capture.
                 RECT desktop{GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};
                 desktop.right=desktop.left+GetSystemMetrics(SM_CXVIRTUALSCREEN); desktop.bottom=desktop.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
-                RECT clipped{}; if(!IntersectRect(&clipped,&r,&desktop) || !EqualRect(&clipped,&r)) winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_INVALID_MONITOR_HANDLE));
+                RECT clipped{}; if(!window&&(!IntersectRect(&clipped,&r,&desktop) || !EqualRect(&clipped,&r))) winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_INVALID_MONITOR_HANDLE));
+                ID3D11Texture2D* texture{};
+                ID3D12Resource* texture12{};
+                if(pipeline12)texture12=pipeline12->next();
+                if(window)update([&](auto& s){s.windowMinimized=IsIconic(window)!=FALSE;});
+                if(pipeline){if(pipeline->sourceClosed())break;texture=pipeline->next();if(!texture){mic.read();std::this_thread::sleep_for(milliseconds(10));continue;}}
+                if(!read().frames){epoch=now;tick=0;}
+                const auto actual=uint64_t(duration_cast<nanoseconds>(now-epoch).count())*o.fps/1000000000ULL;
+                if(actual>tick) { const auto dropped=actual-tick; tick=actual; update([&](auto& s){s.dropped+=dropped;}); }
                 const auto t=LONGLONG(tick-startTick)*10000000/o.fps, end=LONGLONG(tick-startTick+1)*10000000/o.fps;
-                if(pipeline)writer->texture(pipeline->next(),t,end-t);else writer->frame(frames->next(),t,end-t);
+                if(pipeline12)writer->texture12(texture12,t,end-t);else if(pipeline&&native)writer->texture(texture,t,end-t);else writer->frame(pipeline?pipeline->readback():frames->next(),t,end-t);
                 if(mic.channels) {
                     auto pcm=mic.read(); audioQueue.insert(audioQueue.end(),pcm.begin(),pcm.end());
                     const auto target=uint64_t(end)*mic.rate/10000000, needed=target-audioFrames;
@@ -153,7 +168,7 @@ struct Session::Impl {
                 }
             }
             update([](auto& s){s.state=State::Stopping;});
-            if(!tick){writer.reset();if(current){std::error_code ec;std::filesystem::remove(current->path,ec);}update([](auto& s){s.state=State::Completed;s.saving=false;});return;}
+            if(!tick){writer.reset();if(current){std::error_code ec;std::filesystem::remove(current->path,ec);}std::error_code ec;std::filesystem::remove(cache/L"session.json",ec);std::filesystem::remove(cache,ec);update([](auto& s){s.state=State::Completed;s.saving=false;s.recovery.clear();});return;}
             finish();
             if(exporter.joinable()) exporter.join();
             if(!replay) {
@@ -168,6 +183,12 @@ struct Session::Impl {
                     join(paths,temp,[this](double p){update([&](auto& s){s.saveProgress=p;});return !cancelExport.load();});
                     if(!MoveFileExW(temp.c_str(),output.c_str(),MOVEFILE_WRITE_THROUGH))winrt::throw_last_error();
                     update([&](auto& s){s.output=output;++s.savedGeneration;s.saving=false;});
+                }
+                if(discardOnStop){
+                    bool preserved=false;
+                    for(auto& seg:segments){if(seg->preserve)preserved=true;else seg->discard=true;}
+                    segments.clear();
+                    if(!preserved){std::error_code ec;std::filesystem::remove(cache/L"session.json",ec);std::filesystem::remove(cache/L"session.tmp",ec);const bool removed=std::filesystem::remove(cache,ec);if(removed)update([](auto& s){s.recovery.clear();});}
                 }
             }
             if(!replay) { std::error_code ec; std::filesystem::remove(cache/L"session.json",ec); std::filesystem::remove(cache,ec); }
@@ -184,18 +205,20 @@ struct Session::Impl {
 Session::Session():impl_(std::make_unique<Impl>()) {}
 Session::~Session()=default;
 Snapshot Session::snapshot() const { return impl_->read(); }
-bool Session::busy() const { const auto s=snapshot(); return s.saving || s.state==State::Starting || s.state==State::Recording || s.state==State::Paused || s.state==State::Stopping; }
-bool Session::start(Options const& o,RECT r,bool replay) {
+bool Session::busy() const { const auto s=snapshot(); return !impl_->finished || s.saving || s.state==State::Starting || s.state==State::Recording || s.state==State::Paused || s.state==State::Stopping; }
+bool Session::start(Options const& o,RECT r,bool replay,HWND window) {
     if(busy()) return false; validate(o,r);
+    if(window&&(!IsWindow(window)||replay))winrt::throw_hresult(E_INVALIDARG);
     if(impl_->worker.joinable()) impl_->worker.join(); if(impl_->exporter.joinable()) impl_->exporter.join();
-    impl_->stopping=false;impl_->paused=false;impl_->savingRequest=false;
-    impl_->update([&](auto& s){s={};s.state=State::Starting;s.replay=replay;});
-    try { impl_->worker=std::thread([p=impl_.get(),o,r,replay]{p->run(o,r,replay);}); }
-    catch(...) { impl_->update([](auto& s){s.state=State::Failed;s.error=E_OUTOFMEMORY;}); throw; }
+    impl_->stopping=false;impl_->paused=false;impl_->savingRequest=false;impl_->discardOnStop=false;impl_->finished=false;
+    impl_->update([&](auto& s){s={};s.state=State::Starting;s.replay=replay;s.windowCapture=window!=nullptr;if(window){GetWindowThreadProcessId(window,&s.processId);wchar_t title[1024]{};GetWindowTextW(window,title,1024);s.windowTitle=title;}});
+    try { impl_->worker=std::thread([p=impl_.get(),o,r,replay,window]{p->run(o,r,replay,window);p->finished=true;}); }
+    catch(...) { impl_->finished=true;impl_->update([](auto& s){s.state=State::Failed;s.error=E_OUTOFMEMORY;}); throw; }
     return true;
 }
 void Session::pause() { auto s=snapshot(); if(s.state==State::Recording || s.state==State::Paused) impl_->paused=!impl_->paused.load(); }
-void Session::stop() { impl_->stopping=true; }
+void Session::stop(bool discard) { if(discard)impl_->discardOnStop=true;impl_->stopping=true; }
+void Session::wait(){if(impl_->worker.joinable())impl_->worker.join();if(impl_->exporter.joinable())impl_->exporter.join();}
 bool Session::saveReplay() {
     std::lock_guard<std::mutex> lock(impl_->mutex); auto& s=impl_->status;
     if(!s.replay || s.saving || s.state!=State::Recording || !s.frames) return false;
