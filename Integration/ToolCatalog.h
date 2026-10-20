@@ -4,7 +4,8 @@
 #include <cwctype>
 namespace aelura::catalog {
 struct Tool { const wchar_t* id; int category; const char* title; const char* description; const wchar_t* keywords; const wchar_t* glyph; const char* action; };
-inline constexpr std::array<Tool, 4> tools{{
+inline constexpr std::array<Tool, 5> tools{{
+    {L"filesearch", 2, "filesearch.title", "filesearch.description", L"快捷 文件 检索 搜索 查找 everything file search find path 文件名 路径", L"\xE721", "filesearch.open"},
     {L"hash", 2, "hash.title", "hash.description", L"文件 哈希 校验 比较 摘要 sha256 sha-256 checksum hash verify compare integrity", L"\xE9D9", "hash.open"},
     {L"capture", 1, "capture.title", "capture.description", L"截图 图像 分享 screenshotplus capture png annotation image screenshot", L"\xE722", "capture.start"},
     {L"move", 2, "move.title", "move.card_description", L"文件 磁盘 空间 搬家 迁移 链接 freemove squaremove file folder migration disk link storage", L"\xE8B7", "move.open"},

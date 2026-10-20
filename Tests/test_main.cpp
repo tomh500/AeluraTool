@@ -7,6 +7,7 @@
 namespace fs = std::filesystem;
 void run_hash_tests(fs::path const& root);
 void run_migration_tests(fs::path const& root);
+void run_filesearch_tests(fs::path const& root);
 
 int main(int argc, char** argv) {
     const std::string suite = argc == 3 && std::string(argv[1]) == "--suite" ? argv[2] : "all";
@@ -28,6 +29,7 @@ int main(int argc, char** argv) {
         if (root.empty()) throw std::runtime_error("Cannot reserve a test sandbox");
         if (suite == "all" || suite == "hash") run_hash_tests(root / "hash");
         if (suite == "all" || suite == "migration") run_migration_tests(root / "migration");
+        if (suite == "all") run_filesearch_tests(root / "filesearch");
         fs::remove_all(root);
         std::cout << "PASS: selected suites completed\n";
         return 0;

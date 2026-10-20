@@ -7,6 +7,7 @@
 #include <shlobj.h>
 #include <string>
 #include <utility>
+#include <algorithm>
 #include "Integration/CaptureProtocol.h"
 #include "Integration/ToolCatalog.h"
 #include "Integration/FileMigration.h"
@@ -33,7 +34,7 @@ using aelura::i18n::tr;
         Status().IsOpen(true); Status().Message(message); Status().Severity(error ? InfoBarSeverity::Error : InfoBarSeverity::Success);
     }
     void MainWindow::GoBack() {
-        if (page_ != 3 && page_ != 4) return;
+        if (page_ != 3 && page_ != 4 && page_ != 5) return;
         navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
         auto previous = toolReturn_.value_or(NavigationEntry{0, 2, L""}); toolReturn_.reset();
         restoringNavigation_ = true;
@@ -58,7 +59,7 @@ using aelura::i18n::tr;
         const int nextCategory = category < 0 ? category_ : category;
         if (remember && (index != page_ || nextCategory != category_))
             navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
-        if (remember && (index == 3 || index == 4) && page_ != 3 && page_ != 4)
+        if (remember && (index == 3 || index == 4 || index == 5) && page_ != 3 && page_ != 4 && page_ != 5)
             toolReturn_ = NavigationEntry{page_, category_, Search().Text()};
         category_ = nextCategory;
         page_ = index;
@@ -68,14 +69,23 @@ using aelura::i18n::tr;
         PreferencesPage().Visibility(index == 2 ? Visibility::Visible : Visibility::Collapsed);
         MovePage().Visibility(index == 3 ? Visibility::Visible : Visibility::Collapsed);
         HashPage().Visibility(index == 4 ? Visibility::Visible : Visibility::Collapsed);
+        FileSearchPage().Visibility(index == 5 ? Visibility::Visible : Visibility::Collapsed);
+        if (index == 5) {
+            if (!fileSearchPage_) {
+                EnsureFileSearchIndex();
+                fileSearchPage_ = std::make_unique<aelura::filesearch::SearchWindow>(fileSearchIndex_, false, hwnd_);
+                FileSearchHost().Child(fileSearchPage_->content());
+            }
+            fileSearchPage_->show();
+        } else if (fileSearchPage_) fileSearchPage_->hide();
         const wchar_t* categories[] = {tr("nav.all"), tr("nav.images"), tr("nav.files"), tr("nav.games")};
-        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 4 ? tr("hash.title") : tr("move.title"));
-        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 4 ? tr("hash.description") : tr("move.description"));
+        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 5 ? tr("filesearch.title") : index == 4 ? tr("hash.title") : tr("move.title"));
+        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 5 ? tr("filesearch.description") : index == 4 ? tr("hash.description") : tr("move.description"));
         ResultCount().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         auto standard = Application::Current().Resources().Lookup(box_value(L"DefaultButtonStyle")).as<Style>();
         auto selected = Root().Resources().Lookup(box_value(L"NavigationSelected")).as<Style>();
         ImageNav().Style(index == 0 && category_ == 1 ? selected : standard);
-        FilesNav().Style((index == 0 && category_ == 2) || index == 3 || index == 4 ? selected : standard);
+        FilesNav().Style((index == 0 && category_ == 2) || index == 3 || index == 4 || index == 5 ? selected : standard);
         GamesNav().Style(index == 0 && category_ == 3 ? selected : standard);
         KeysNav().Style(index == 1 ? selected : standard); PreferencesNav().Style(index == 2 ? selected : standard);
         if (index == 0) RenderTools(); if (index == 1) RenderKeys(); if (index == 4) RenderHash();
@@ -114,6 +124,7 @@ using aelura::i18n::tr;
             DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         };
         Root().ActualThemeChanged([titleTheme](auto const&, auto const&) { titleTheme(); }); titleTheme();
+        Root().SizeChanged([this](auto const&, auto const&) { FileSearchHost().Height((std::max)(320.0, Root().ActualHeight() - 320.0)); });
         ThemeChoice().SelectionChanged([this](auto const&, auto const&) {
             if (localizing_) return;
             int selected = ThemeChoice().SelectedIndex();
@@ -122,6 +133,7 @@ using aelura::i18n::tr;
                 Notice(tr("error.theme_save"), true); return;
             }
             Root().RequestedTheme(static_cast<ElementTheme>(selected));
+            if (fileSearch_) fileSearch_->appearance(Root().RequestedTheme());
         });
         LanguageChoice().SelectionChanged([this](auto const&, auto const&) {
             if (localizing_) return;
@@ -144,6 +156,7 @@ using aelura::i18n::tr;
         Root().AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
         HashBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         MoveBackButton().Click([this](auto const&, auto const&) { GoBack(); });
+        FileSearchBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         HistoryBackButton().Click([this](auto const&, auto const&) { GoHistoryBack(); });
         Input::KeyboardAccelerator backKey;
         backKey.Key(Windows::System::VirtualKey::Left);
@@ -257,11 +270,13 @@ using aelura::i18n::tr;
         if (msg == WM_HOTKEY) {
             self->FinishStartup();
             for (auto const& b : self->hotkeys_.bindings) if (b.registered && wp == static_cast<WPARAM>(b.slot)) {
-                if (b.id == L"print") self->Invoke(1); else if (b.id == L"preview") self->Invoke(3); else self->ActivateTool(b.id);
+                if (b.id == L"filesearch") self->ShowFileSearch(); else if (b.id == L"print") self->Invoke(1); else if (b.id == L"preview") self->Invoke(3); else self->ActivateTool(b.id);
                 return 0;
             }
         }
         if (msg == WM_DESTROY) {
+            if (self->fileSearch_) self->fileSearch_->close();
+            if (self->fileSearchPage_) self->fileSearchPage_->close();
             self->tray_.Remove();
             if (self->hashTimer_) self->hashTimer_.Stop();
             if (self->timer_) self->timer_.Stop();

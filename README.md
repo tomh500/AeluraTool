@@ -17,6 +17,10 @@ Windows 桌面工具集合，主界面使用 C++/WinRT 与 WinUI 3。
 
 ## 构建和运行
 
+快捷文件检索沿用主程序 WinUI 3 页面，从文件管理分类或统一搜索进入。默认 `Ctrl+Alt+F` 从桌面呼出悬浮输入框，输入后展开结果；快捷键可在设置中搜索、编辑和停用。支持路径、大小写、全字和正则选项；方向键选择，Enter 打开，Ctrl+Enter 定位，Esc 隐藏悬浮框，也可复制路径。
+
+检索内置于工具箱，不依赖 Everything 或其他外部进程。首次打开检索时后台扫描本地固定盘与可移动盘，缓存文件名/路径，后续可先读取上次索引；不读取文件正文，不递归目录重解析点。可搜索已收录的项目，并查看进度或取消建库。最多收录 200 万项，结果显示前 200 项及总数；权限不足和达到上限会明确显示。文件变化后需手动刷新索引；尚未实现 MFT/USN 实时增量索引，不宣称与 Everything 全功能或性能等价。
+
 完整的编译环境、MSIX 签名打包、安装依赖与二次分发说明见 [BUILD_AND_DISTRIBUTE.md](BUILD_AND_DISTRIBUTE.md)。`scripts/package.ps1` 可生成 Release x64 安装包，默认不签名。
 `scripts/distribute.ps1 -CertificateThumbprint <证书指纹>` 构建签名 MSIX 并整理包含公开证书、x64 依赖、安装脚本和说明的 ZIP；不导出私钥。
 

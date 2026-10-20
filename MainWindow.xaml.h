@@ -7,6 +7,8 @@
 #include "Integration/DesktopLifecycle.h"
 #include "Integration/HotkeyManager.h"
 #include "Integration/FileHash.h"
+#include "Integration/FileSearchWindow.h"
+#include <memory>
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
 namespace winrt::AeluraTool::implementation {
     struct MainWindow : MainWindowT<MainWindow> {
@@ -20,6 +22,11 @@ namespace winrt::AeluraTool::implementation {
         HANDLE process_{}, job_{}, singleton_{};
         DWORD pid_{};
         aelura::hotkeys::Manager hotkeys_;
+        std::unique_ptr<aelura::filesearch::SearchWindow> fileSearch_;
+        std::unique_ptr<aelura::filesearch::SearchWindow> fileSearchPage_;
+        std::shared_ptr<aelura::filesearch::Index> fileSearchIndex_;
+        void ShowFileSearch();
+        void EnsureFileSearchIndex();
         HANDLE strike_{};
         int category_{1}, page_{};
         struct SearchTarget { std::wstring label, id; int page, category; };

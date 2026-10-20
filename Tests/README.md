@@ -4,6 +4,10 @@
 
 ## 运行
 
+`all` 还包含内置文件索引、junction 不递归、Unicode 与组合搜索、大小写与全字、通配符、扩展名/文件/目录筛选、正则表达式、缓存损坏恢复、创建/重命名/删除后刷新、取消保留旧索引、旧查询丢弃，以及检索快捷键冲突/保存失败回滚测试。所有文件样本、索引根目录及缓存均位于测试自动创建的临时目录，不依赖 Everything。
+
+WinUI 实机检查可在 Debug 部署目录放置 UTF-8 `file-search-test-root.txt`，内容为本轮新建的临时目录绝对路径。该目录必须直接位于系统临时目录下，名称以 `AeluraSearchUi-` 开头，含 `.aelura-filesearch-fixture` 标记，样本位于其 `files` 子目录；索引缓存位于其 `cache` 子目录。只有 Debug 构建读取此测试入口，Release 忽略它。检查后退出测试进程并删除入口及本轮样本。
+
 在仓库根目录执行（Windows、Visual Studio C++ 工具链、Windows SDK、Python 3）：
 
 ```powershell

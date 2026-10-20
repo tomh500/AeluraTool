@@ -57,6 +57,7 @@ void MainWindow::LocalizeLifecycle() {
 }
 fire_and_forget MainWindow::RequestClose(bool explicitExit) {
     auto lifetime = get_strong();
+    if (fileSearchIndex_ && fileSearchIndex_->progress().running) { RestoreWindow(); Page(5); Notice(tr("filesearch.wait_index"), true); co_return; }
     if (fileTask_ != FileTask::None) { RestoreWindow(); Notice(tr("files.wait"), true); co_return; }
     if (closeDialogOpen_) { RestoreWindow(); co_return; }
     int action = explicitExit ? 1 : closeAction_;
@@ -74,6 +75,7 @@ fire_and_forget MainWindow::RequestClose(bool explicitExit) {
             action = result == ContentDialogResult::Primary ? 2 : 1;
             // Recheck after the asynchronous dialog: a hotkey may have started a file task.
             if (fileTask_ != FileTask::None) { Notice(tr("files.wait"), true); co_return; }
+            if (fileSearchIndex_ && fileSearchIndex_->progress().running) { Page(5); Notice(tr("filesearch.wait_index"), true); co_return; }
             if (remember.IsChecked().Value()) {
                 if (!SaveBehavior(L"CloseAction", action)) co_return;
                 closeAction_ = action; localizing_ = true; CloseActionChoice().SelectedIndex(action); localizing_ = false;
