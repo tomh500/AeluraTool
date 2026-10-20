@@ -1,0 +1,27 @@
+[Unit]
+Description=Aelura private wallpaper relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/wallpaper-relay
+Environment=RELAY_CONFIG=/home/ubuntu/wallpaper-relay/config.json
+Environment=HOME=/home/ubuntu/wallpaper-relay/steam-home
+ExecStart=/home/ubuntu/wallpaper-relay/.venv/bin/python -m uvicorn relay.app:create_app --factory --host 127.0.0.1 --port 18741 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ubuntu/wallpaper-relay
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+CPUQuota=100%
+
+[Install]
+WantedBy=multi-user.target

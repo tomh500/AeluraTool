@@ -1,5 +1,14 @@
 # 验证记录
 
+## 私有壁纸中转后端初版（2026-10-21）
+
+- 新增独立 Services/WallpaperRelay Python 服务及 Google 登录配置说明，不增加 WinUI 工具入口。保留本轮开始时及工作期间已有的录屏、资源、工程和文档改动，不纳入本功能提交。
+- Windows 后端测试 23 项通过、1 项因主机不允许创建符号链接而跳过；Ubuntu 26.04 / Python 3.14 服务端 24 项全部通过。检查签名 ID Token 的 issuer/audience/expiry/nonce、错误签名拒绝、回调单次消费、允许名单、会话过期及撤销、任务归属、队列限制、取消、重启中断、Range 下载、SHA-256、不安全文件名及符号链接拒绝。下载执行器通过临时 Python 子进程生成内容，验证成功打包、无成功标记时拒绝发布、取消及原文件保留；没有用这些模拟结果代替真实 Steam 验证。
+- 经域名 AAAA 记录连接服务器，记录并在后续连接固定 SSH 主机公钥指纹。部署目录 /home/ubuntu/wallpaper-relay，systemd 服务 aelura-wallpaper-relay 已启用并运行，仅监听 127.0.0.1:18741。由 Windows 经 SSH direct-tcpip 通道请求，健康检查 200、未登录身份与创建任务 401、未配置 Google 登录 503 均符合预期。默认允许名单为空，下载开关关闭。
+- 服务器安装 libc6-i386、lib32gcc-s1、lib32stdc++6，专用目录内下载 Valve 原版 SteamCMD 并完成自更新，实际执行 +quit 成功。不保存或提交服务器密码、Steam 凭据及 OAuth 密钥；没有配置公网入口。
+- 工作区 Release / Debug x64 构建及两套 scripts/test.ps1 自动回归实际通过，包含迁移核心、搜索匹配、快捷键注册及保存失败回滚、语言资源、录屏及截图通信/Job 检查。日志为 artifacts/wallpaper-relay-build-release.txt、-build-debug.txt、-tests-release.txt、-tests-debug.txt。本轮没有交互操作主题或分类导航界面；不据此声称已重新完成界面验收。
+- 尚未配置 Google OAuth 应用，未完成真实浏览器登录；微软只保留通用固定 issuer 的 OIDC 配置能力，未实测，QQ 未实现。尚未登录用户 Steam 账号，未下载真实工坊物品、验证权限或进行播放器实测；未实现 Win32 客户端、按字节进度、自动更新及缓存淘汰。存储监控为周期检查而非硬磁盘配额；失败与取消保留 Steam 内容，已有物品目录拒绝自动重用。Python 测试依赖产生一项 Starlette/httpx 弃用警告，不影响本轮测试通过。
+
 ## 全屏切换恢复（2026-10-20～21，1.5.2.0）
 
 - 修复 0x887A0026（DXGI_ERROR_ACCESS_LOST）导致重放终止：共享显示器采集、重新枚举输出并重建接口，处理首帧超时及暂时不可用，保持编码画布与已有缓存。普通 CPU/GPU 编码也使用默认 DX11 采集，厂商编码初始化回退不再丢弃该采集管线。
