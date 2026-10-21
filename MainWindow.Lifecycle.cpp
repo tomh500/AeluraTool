@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "MainWindow.xaml.h"
 #include "Integration/I18n.h"
+#include "Integration/FileShellActions.h"
 #include <winrt/Windows.ApplicationModel.h>
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
@@ -57,6 +58,7 @@ void MainWindow::LocalizeLifecycle() {
 }
 fire_and_forget MainWindow::RequestClose(bool explicitExit) {
     auto lifetime = get_strong();
+    if (aelura::files::active()) { RestoreWindow(); Page(5); Notice(tr("filesearch.wait_files"), true); co_return; }
     if (fileSearchIndex_ && fileSearchIndex_->progress().running) { RestoreWindow(); Page(5); Notice(tr("filesearch.wait_index"), true); co_return; }
     if (fileTask_ != FileTask::None) { RestoreWindow(); Notice(tr("files.wait"), true); co_return; }
     if (closeDialogOpen_) { RestoreWindow(); co_return; }
@@ -75,6 +77,7 @@ fire_and_forget MainWindow::RequestClose(bool explicitExit) {
             action = result == ContentDialogResult::Primary ? 2 : 1;
             // Recheck after the asynchronous dialog: a hotkey may have started a file task.
             if (fileTask_ != FileTask::None) { Notice(tr("files.wait"), true); co_return; }
+            if (aelura::files::active()) { Page(5); Notice(tr("filesearch.wait_files"), true); co_return; }
             if (fileSearchIndex_ && fileSearchIndex_->progress().running) { Page(5); Notice(tr("filesearch.wait_index"), true); co_return; }
             if (remember.IsChecked().Value()) {
                 if (!SaveBehavior(L"CloseAction", action)) co_return;

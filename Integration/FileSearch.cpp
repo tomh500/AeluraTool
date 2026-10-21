@@ -65,6 +65,10 @@ Index::Index(std::filesystem::path cache, std::vector<std::filesystem::path> roo
     roots_(roots.empty() ? drives() : std::move(roots)), worker_([this] { run(); }) {
     auto settings = cache_; settings += L".ini";
     everything_ = !cache_.empty() && GetPrivateProfileIntW(L"Search", L"EverythingSDK", 0, settings.c_str()) == 1;
+    if (!cache_.empty()) {
+        auto ledger = cache_; ledger += L".changes"; std::ifstream input(ledger, std::ios::binary);
+        if (input) while (input.peek() != std::char_traits<char>::eof()) { std::wstring path; if (!readString(input, path) || !std::filesystem::path(path).is_absolute()) { ledgerInvalid_ = true; changedPaths_.clear(); break; } changedPaths_.emplace_back(path); }
+    }
     if (!everything_) refresh();
 }
 Index::~Index() { stopping_ = true; cancel_ = true; wake_.notify_one(); if (worker_.joinable()) worker_.join(); }
@@ -84,13 +88,28 @@ bool Index::setEverything(bool enabled) {
         if (error || !WritePrivateProfileStringW(L"Search", L"EverythingSDK", enabled ? L"1" : L"0", settings.c_str())) return false;
     }
     everything_ = enabled;
+    bool needsRefresh = false;
     {
         std::lock_guard lock(mutex_); ++data_.progress.revision;
         if (enabled) { restartBuiltin_ = false; if (data_.progress.running) cancel_ = true; }
         else if (data_.progress.running && cancel_) restartBuiltin_ = true;
+        needsRefresh = !enabled && (!changedPaths_.empty() || data_.progress.indexed == 0 || data_.progress.cancelled);
     }
-    if (!enabled && !progress().running && (progress().indexed == 0 || progress().cancelled)) refresh();
+    if (needsRefresh && !progress().running) refresh();
     return true;
+}
+void Index::updatePaths(std::vector<std::filesystem::path> paths) {
+    std::lock_guard lock(mutex_);
+    for (auto const& path : paths) if (path.is_absolute()) changedPaths_.push_back(path);
+    if (!cache_.empty() && !changedPaths_.empty()) {
+        std::error_code error; std::filesystem::create_directories(cache_.parent_path(), error);
+        auto ledger = cache_; ledger += L".changes"; std::ofstream output(ledger, std::ios::binary | std::ios::app);
+        for (auto const& path : paths) if (path.is_absolute()) writeString(output, path.wstring()); output.flush();
+        if (error || !output.good()) { ledgerInvalid_ = true; throw std::runtime_error("index update ledger could not be saved"); }
+    }
+    if (changedPaths_.empty() || everything_) return;
+    if (!data_.progress.running) cancel_ = false;
+    pending_ = true; data_.progress.running = true; ++data_.progress.revision; wake_.notify_one();
 }
 void Index::publish(std::shared_ptr<Batch> const& batch, uint64_t skipped) {
     std::lock_guard lock(mutex_);
@@ -98,7 +117,7 @@ void Index::publish(std::shared_ptr<Batch> const& batch, uint64_t skipped) {
     data_.progress.skipped = skipped; ++data_.progress.revision;
 }
 bool Index::load() {
-    if (cache_.empty() || cancel_ || stopping_) return false;
+    if (cache_.empty() || cancel_ || stopping_ || ledgerInvalid_) return false;
     std::ifstream input(cache_, std::ios::binary); if (!input) return false;
     uint64_t magic{}, count{}; input.read(reinterpret_cast<char*>(&magic), 8); input.read(reinterpret_cast<char*>(&count), 8);
     // Bound allocations by the actual cache length, not an arbitrary file-count ceiling.
@@ -198,18 +217,72 @@ void Index::build() {
 }
 void Index::run() {
     while (!stopping_) {
-        { std::unique_lock lock(mutex_); wake_.wait(lock, [this] { return stopping_ || pending_; }); if (stopping_) break; pending_ = false; }
+        std::vector<std::filesystem::path> changes;
+        { std::unique_lock lock(mutex_); wake_.wait(lock, [this] { return stopping_ || pending_; }); if (stopping_) break; pending_ = false; changes.swap(changedPaths_); }
         try {
             bool reused = false;
+            const bool existing = loaded_;
             if (!loaded_) { reused = load(); loaded_ = true; }
-            if (!reused) build();
+            if (!changes.empty() && (existing || reused) && !ledgerInvalid_) update(changes);
+            else if (!reused) build();
         }
         catch (...) { std::lock_guard lock(mutex_); data_.progress.failed = true; }
         std::lock_guard lock(mutex_);
         if (restartBuiltin_ && !everything_) { restartBuiltin_ = false; pending_ = true; cancel_ = false; data_.progress.running = true; data_.progress.cancelled = false; }
-        else data_.progress.running = false;
+        else data_.progress.running = pending_;
+        if (cancel_) data_.progress.cancelled = true;
+        if (!cache_.empty() && !data_.progress.failed && !data_.progress.cancelled && !data_.progress.cacheFailed) {
+            auto ledger = cache_; ledger += L".changes";
+            if (changedPaths_.empty()) { DeleteFileW(ledger.c_str()); ledgerInvalid_ = false; }
+            else { std::ofstream output(ledger, std::ios::binary | std::ios::trunc); for (auto const& path : changedPaths_) writeString(output, path.wstring()); }
+        }
         ++data_.progress.revision;
     }
+}
+void Index::update(std::vector<std::filesystem::path> const& paths) {
+    auto within = [](std::wstring const& value, std::wstring root) {
+        while (root.size() > 3 && root.back() == L'\\') root.pop_back();
+        return value.size() >= root.size() && CompareStringOrdinal(value.data(), static_cast<int>(root.size()), root.data(), static_cast<int>(root.size()), TRUE) == CSTR_EQUAL &&
+            (value.size() == root.size() || root.back() == L'\\' || value[root.size()] == L'\\');
+    };
+    std::vector<std::filesystem::path> roots;
+    auto ordered = paths; std::sort(ordered.begin(), ordered.end(), [](auto const& a, auto const& b) { return a.native().size() < b.native().size(); });
+    for (auto const& path : ordered) {
+        auto normalized = path.lexically_normal();
+        if (std::none_of(roots.begin(), roots.end(), [&](auto const& root) { return within(normalized.wstring(), root.wstring()); })) {
+            roots.erase(std::remove_if(roots.begin(), roots.end(), [&](auto const& root) { return within(root.wstring(), normalized.wstring()); }), roots.end());
+            roots.push_back(std::move(normalized));
+        }
+    }
+    auto previous = snapshot(); IndexSnapshot next; auto batch = std::make_shared<Batch>();
+    auto append = [&](Entry const& value) { batch->push_back(value); if (batch->size() == BatchSize) { next.batches.push_back(batch); batch = std::make_shared<Batch>(); } ++next.progress.indexed; };
+    for (auto const& source : previous.batches) {
+        if (cancel_ || stopping_) return;
+        auto affected = [&](auto const& value) { return std::any_of(roots.begin(), roots.end(), [&](auto const& root) { return within(value.item.path, root.wstring()); }); };
+        if (std::none_of(source->begin(), source->end(), affected)) { if (!batch->empty()) { next.batches.push_back(batch); batch = std::make_shared<Batch>(); } next.batches.push_back(source); next.progress.indexed += source->size(); }
+        else for (auto const& value : *source) if (!affected(value)) append(value);
+    }
+    std::vector<std::filesystem::path> pending;
+    for (auto const& root : roots) {
+        auto attributes = GetFileAttributesW(root.c_str()); if (attributes == INVALID_FILE_ATTRIBUTES) continue;
+        append(entry(root.wstring(), (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0));
+        if ((attributes & FILE_ATTRIBUTE_DIRECTORY) && !(attributes & FILE_ATTRIBUTE_REPARSE_POINT)) pending.push_back(root);
+    }
+    while (!pending.empty() && !cancel_ && !stopping_) {
+        auto directory = std::move(pending.back()); pending.pop_back(); WIN32_FIND_DATAW found{}; FindHandle handle;
+        handle.value = FindFirstFileExW((directory / L"*").c_str(), FindExInfoBasic, &found, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
+        if (handle.value == INVALID_HANDLE_VALUE) continue;
+        do {
+            if (cancel_ || stopping_) return;
+            if (!wcscmp(found.cFileName, L".") || !wcscmp(found.cFileName, L"..")) continue;
+            auto path = directory / found.cFileName; auto folder = (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            append(entry(path.wstring(), folder)); if (folder && !(found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) pending.push_back(std::move(path));
+        } while (FindNextFileW(handle.value, &found));
+    }
+    if (cancel_ || stopping_) return;
+    if (!batch->empty()) next.batches.push_back(batch);
+    { std::lock_guard lock(mutex_); next.progress.revision = data_.progress.revision + 1; next.progress.running = true; next.progress.skipped = data_.progress.skipped; data_ = std::move(next); }
+    auto saved = save(); std::lock_guard lock(mutex_); data_.progress.cacheFailed = !saved;
 }
 void preserveResultOrder(std::vector<Item> const& previous, std::vector<Item>& incoming) {
     std::vector<Item> stable; stable.reserve(incoming.size());

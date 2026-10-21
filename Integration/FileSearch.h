@@ -32,16 +32,18 @@ public:
     IndexSnapshot snapshot() const;
     bool everything() const { return everything_; }
     bool setEverything(bool enabled);
+    void updatePaths(std::vector<std::filesystem::path> paths);
 private:
-    void run(); void build(); bool load(); bool save();
+    void run(); void build(); void update(std::vector<std::filesystem::path> const& paths); bool load(); bool save();
     void publish(std::shared_ptr<Batch> const& batch, uint64_t skipped);
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::atomic<bool> stopping_{false}, cancel_{false};
-    std::atomic<bool> everything_{false};
+    std::atomic<bool> everything_{false}, ledgerInvalid_{false};
     bool pending_{}, loaded_{}, restartBuiltin_{};
     std::filesystem::path cache_;
     std::vector<std::filesystem::path> roots_;
+    std::vector<std::filesystem::path> changedPaths_;
     IndexSnapshot data_;
     std::thread worker_;
 };

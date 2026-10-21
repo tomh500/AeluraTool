@@ -72,6 +72,22 @@ void run_filesearch_tests(fs::path const& root) {
     check(match(source, L"[", {false, false, false, true}).sourceRevision == source.progress.revision, "invalid query lost its index revision");
     index->refresh(); index->cancel(); waitIndex(*index);
     check(index->progress().cancelled && match(index->snapshot(), L"Renamed", {}).total == 1, "refresh cancel lost prior index");
+    fs::rename(files / L"Renamed.txt", files / L"Edited.txt"); write(files / L"unrelated.txt");
+    index->updatePaths({files / L"Renamed.txt", files / L"Edited.txt"}); waitIndex(*index);
+    check(match(index->snapshot(), L"Edited", {}).total == 1 && match(index->snapshot(), L"Renamed", {}).total == 0 && match(index->snapshot(), L"unrelated", {}).total == 0, "targeted update was missing or rescanned unrelated paths");
+    check(index->setEverything(true), "SDK switch fixture failed"); fs::rename(files / L"Edited.txt", files / L"Later.txt");
+    index->updatePaths({files / L"Edited.txt", files / L"Later.txt"}); check(!index->progress().running, "SDK mode started a built-in update");
+    check(index->setEverything(false), "built-in restore failed"); waitIndex(*index);
+    check(match(index->snapshot(), L"Later", {}).total == 1 && match(index->snapshot(), L"unrelated", {}).total == 0, "deferred updates failed or triggered a full rescan");
+    fs::remove(files / L"unrelated.txt");
+    auto deferredCache = root / L"deferred.bin";
+    { Index deferred(deferredCache, {files}); waitIndex(deferred); check(deferred.setEverything(true), "deferred SDK setup failed");
+      fs::rename(files / L"Later.txt", files / L"AfterRestart.txt"); write(files / L"not-rescanned.txt");
+      deferred.updatePaths({files / L"Later.txt", files / L"AfterRestart.txt"}); }
+    { Index restored(deferredCache, {files}); check(restored.everything() && !restored.progress().running, "deferred SDK startup scanned files");
+      check(restored.setEverything(false), "deferred restore failed"); waitIndex(restored);
+      check(match(restored.snapshot(), L"AfterRestart", {}).total == 1 && match(restored.snapshot(), L"Later", {}).total == 0 && match(restored.snapshot(), L"not-rescanned", {}).total == 0, "deferred updates did not survive restart or scanned unrelated files"); }
+    fs::remove(files / L"not-rescanned.txt");
     // Corrupt caches are ignored; a normal scan repairs them.
     auto badCache = root / L"bad.bin"; std::ofstream(badCache) << "truncated cache";
     Index repaired(badCache, {files}); waitIndex(repaired); check(repaired.progress().indexed == 7, "corrupt cache recovery failed");

@@ -132,6 +132,7 @@
     <ClInclude Include="Integration\FileSearch.h" />
     <ClInclude Include="Integration\NtfsFileIndex.h" />
     <ClInclude Include="Integration\EverythingSearch.h" />
+    <ClInclude Include="Integration\FileShellActions.h" />
     <ClInclude Include="Integration\FileSearchWindow.h" />
     <ClInclude Include="Integration\I18n.h" />
     <ClInclude Include="App.xaml.h">
@@ -152,6 +153,7 @@
     <ClCompile Include="Integration\FileSearchWindow.cpp" />
     <ClCompile Include="Integration\FileSearch.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\EverythingSearch.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Integration\FileShellActions.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\EverythingSDK\src\Everything.c"><PrecompiledHeader>NotUsing</PrecompiledHeader><CompileAs>CompileAsC</CompileAs><WarningLevel>Level1</WarningLevel></ClCompile>
     <ClCompile Include="MainWindow.Localization.cpp" />
     <ClCompile Include="MainWindow.Startup.cpp" />

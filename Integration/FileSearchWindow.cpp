@@ -1,12 +1,14 @@
 #include "pch.h"
 #include "FileSearchWindow.h"
 #include "I18n.h"
+#include "FileShellActions.h"
 #include <microsoft.ui.xaml.window.h>
 #include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.h>
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
+#include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <shlobj.h>
 #include <shellapi.h>
 #include <dwmapi.h>
@@ -25,7 +27,7 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
       <StackPanel x:Name="Options" Grid.Row="1" Spacing="4"><CheckBox x:Name="EverythingSDK"/><StackPanel Orientation="Horizontal" Spacing="14"><CheckBox x:Name="MatchPath"/><CheckBox x:Name="MatchCase"/><CheckBox x:Name="WholeWord"/><CheckBox x:Name="Regex"/></StackPanel></StackPanel>
       <StackPanel x:Name="Feedback" Grid.Row="2" Spacing="4"><TextBlock x:Name="State" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="IndexState" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
       <ListView x:Name="Results" Grid.Row="3" SelectionMode="Single" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch"><ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Padding="4,7"/></DataTemplate></ListView.ItemTemplate></ListView>
-      <StackPanel x:Name="Actions" Grid.Row="4" Spacing="10"><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Open"/><Button x:Name="Locate"/><Button x:Name="Copy"/><Button x:Name="Refresh"/><Button x:Name="CancelIndex"/></StackPanel><TextBlock x:Name="Hint" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+      <StackPanel x:Name="Actions" Grid.Row="4" Spacing="10"><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Open"/><Button x:Name="Locate"/><Button x:Name="Copy"/><Button x:Name="Refresh"/><Button x:Name="CancelIndex"/><Button x:Name="CancelFiles" Visibility="Collapsed"/></StackPanel><TextBlock x:Name="Hint" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
     </Grid>)").as<Grid>();
     query_ = root_.FindName(L"Query").as<TextBox>(); list_ = root_.FindName(L"Results").as<ListView>(); state_ = root_.FindName(L"State").as<TextBlock>();
     if (floating) {
@@ -47,18 +49,19 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
     });
     poll_ = queue.CreateTimer(); poll_.Interval(std::chrono::milliseconds(60));
     poll_.Tick([this](auto const&, auto const&) {
+        files::completeClipboardMove(hwnd_);
         auto engine = root_.FindName(L"EverythingSDK").as<CheckBox>();
         if (engine.IsChecked().Value() != index_->everything()) {
             syncingEngine_ = true; engine.IsChecked(index_->everything()); syncingEngine_ = false; changed();
         }
-        if (searching_) {
+        if (searching_ && !menuOpen_ && !dialogOpen_) {
             auto next = session_.snapshot();
             if (next.generation == generation_ && next.state != State::Searching) {
                 searching_ = false; indexRevision_ = next.sourceRevision; result_ = std::move(next); render();
             }
         }
         auto progress = index_->progress();
-        if (!composing_ && !debounce_.IsRunning() && !searching_ && (index_->everything() || progress.revision != indexRevision_) && GetTickCount64() - lastQueryTime_ >= 1000 && !query_.Text().empty()) {
+        if (!composing_ && !menuOpen_ && !dialogOpen_ && !debounce_.IsRunning() && !searching_ && (index_->everything() || progress.revision != indexRevision_) && GetTickCount64() - lastQueryTime_ >= 1000 && !query_.Text().empty()) {
             debounce_.Start();
         }
         status();
@@ -86,15 +89,30 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
     }
     root_.FindName(L"Refresh").as<Button>().Click([this](auto const&, auto const&) { if (index_->everything()) debounce_.Start(); else index_->refresh(); status(); });
     root_.FindName(L"CancelIndex").as<Button>().Click([this](auto const&, auto const&) { index_->cancel(); status(); });
+    root_.FindName(L"CancelFiles").as<Button>().Click([](auto const&, auto const&) { files::cancel(); });
+    list_.ContextRequested([this](auto const&, Input::ContextRequestedEventArgs const& args) { context(args); });
     list_.DoubleTapped([this](auto const&, auto const&) { action(0); });
     list_.AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, Input::KeyRoutedEventArgs const& args) {
+        if (compositionKey_ || menuOpen_ || dialogOpen_) return;
+        const auto selected = list_.SelectedIndex();
+        if (selected >= 0 && static_cast<size_t>(selected) < result_.items.size()) {
+            int command = -1; auto key = args.Key(); using Windows::System::VirtualKey;
+            if (GetKeyState(VK_CONTROL) & 0x8000) {
+                if (key == VirtualKey::C) command = GetKeyState(VK_SHIFT) & 0x8000 ? 2 : 3;
+                else if (key == VirtualKey::X) command = 4;
+                else if (key == VirtualKey::V) command = 5;
+            } else if (key == VirtualKey::F2) command = 6;
+            else if (key == VirtualKey::Delete) command = 7;
+            else if (key == VirtualKey::Enter && (GetKeyState(VK_MENU) & 0x8000)) command = 9;
+            if (command >= 0) { auto item = result_.items[selected]; fileAction(command, item.path, item.folder); args.Handled(true); return; }
+        }
         if (!compositionKey_ && args.Key() == Windows::System::VirtualKey::Enter) {
             action(GetKeyState(VK_CONTROL) & 0x8000 ? 1 : 0); args.Handled(true);
         }
     })), true);
     root_.AddHandler(UIElement::PreviewKeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, auto const&) { compositionKey_ = composing_; })), true);
     root_.AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, Input::KeyRoutedEventArgs const& args) {
-        if (compositionKey_) return; // Let the IME commit/cancel/select its candidate first.
+        if (compositionKey_ || menuOpen_ || dialogOpen_ || args.Handled()) return; // Preserve native text/IME and flyout handling.
         using Windows::System::VirtualKey;
         auto key = args.Key();
         if (key == VirtualKey::Escape) { if (window_) hide(); else query_.Text(L""); args.Handled(true); }
@@ -144,6 +162,7 @@ void SearchWindow::localize() {
     for (auto const& pair : {std::pair{L"Open", "filesearch.open_file"}, {L"Locate", "filesearch.locate"}, {L"Copy", "filesearch.copy"}, {L"Refresh", "filesearch.refresh"}, {L"CancelIndex", "filesearch.cancel_index"}})
         root_.FindName(pair.first).as<Button>().Content(box_value(tr(pair.second)));
     status();
+    root_.FindName(L"CancelFiles").as<Button>().Content(box_value(tr("filesearch.cancel_files")));
 }
 void SearchWindow::changed() {
     if (!visible_) return;
@@ -194,6 +213,14 @@ void SearchWindow::status() {
     }
     state_.Text(value);
     if (noticeKey_ && GetTickCount64() < noticeUntil_) state_.Text(tr(noticeKey_));
+    auto operation = files::state();
+    root_.FindName(L"CancelFiles").as<Button>().Visibility(operation.busy ? Visibility::Visible : Visibility::Collapsed);
+    if (operation.busy) state_.Text(std::wstring(tr("filesearch.file_busy")) + std::to_wstring(operation.completed) + L" / " + std::to_wstring(operation.total));
+    else if (!operation.recovery.empty()) state_.Text(std::wstring(tr("filesearch.recovery")) + operation.recovery.wstring());
+    if (operation.revision != fileRevision_) {
+        fileRevision_ = operation.revision;
+        if (!operation.busy) { noticeKey_ = operation.cancelled ? "filesearch.file_cancelled" : operation.failed ? "filesearch.file_failed" : "filesearch.file_done"; noticeUntil_ = GetTickCount64() + 5000; }
+    }
     const auto progress = index_->progress();
     const bool sdk = index_->everything();
     root_.FindName(L"Hint").as<TextBlock>().Text(tr(sdk ? "filesearch.sdk_hint" : "filesearch.hint"));
@@ -205,9 +232,62 @@ void SearchWindow::status() {
     root_.FindName(L"IndexState").as<TextBlock>().Text(sdk ? tr("filesearch.sdk_active") : indexText);
     root_.FindName(L"Refresh").as<Button>().IsEnabled(sdk || !progress.running);
     root_.FindName(L"Refresh").as<Button>().Content(box_value(tr(sdk ? "filesearch.refresh_results" : "filesearch.refresh")));
-    root_.FindName(L"CancelIndex").as<Button>().Visibility(sdk ? Visibility::Collapsed : Visibility::Visible);
+    root_.FindName(L"CancelIndex").as<Button>().Visibility(sdk || operation.busy ? Visibility::Collapsed : Visibility::Visible);
     root_.FindName(L"CancelIndex").as<Button>().IsEnabled(!sdk && progress.running);
     for (auto name : {L"Open", L"Locate", L"Copy"}) root_.FindName(name).as<Button>().IsEnabled(result_.state == State::Ready && !result_.items.empty());
+}
+void SearchWindow::context(Input::ContextRequestedEventArgs const& args) {
+    if (dialogOpen_ || files::active()) { args.Handled(true); return; }
+    auto element = args.OriginalSource().try_as<DependencyObject>();
+    ListViewItem row{nullptr};
+    while (element && element != list_) { row = element.try_as<ListViewItem>(); if (row) break; element = Media::VisualTreeHelper::GetParent(element); }
+    Windows::Foundation::Point point{}; bool positioned = args.TryGetPosition(list_, point);
+    if (row) list_.SelectedIndex(list_.IndexFromContainer(row));
+    else if (positioned) { args.Handled(true); return; } // A blank area must not act on an unrelated selection.
+    auto selected = list_.SelectedIndex();
+    if (selected < 0 || static_cast<size_t>(selected) >= result_.items.size()) return;
+    auto target = result_.items[selected]; MenuFlyout menu;
+    const char* keys[] = {"filesearch.open_file", "filesearch.locate", "filesearch.copy", "filesearch.copy_file", "filesearch.cut_file", "filesearch.paste_file", "filesearch.rename", "filesearch.delete", "filesearch.desktop_shortcut", "filesearch.properties"};
+    for (int command = 0; command < 10; ++command) {
+        if (command == 3 || command == 6 || command == 8) menu.Items().Append(MenuFlyoutSeparator());
+        MenuFlyoutItem item; item.Text(tr(command == 5 && !target.folder ? "filesearch.paste_parent" : keys[command]));
+        if (command == 5) item.IsEnabled(IsClipboardFormatAvailable(CF_HDROP) != FALSE);
+        item.Click([this, command, target](auto const&, auto const&) { fileAction(command, target.path, target.folder); });
+        menu.Items().Append(item);
+    }
+    menuOpen_ = true; menu.Closed([this](auto const&, auto const&) { menuOpen_ = false; });
+    Controls::Primitives::FlyoutShowOptions options;
+    if (positioned) options.Position(point);
+    else if (auto anchor = list_.ContainerFromIndex(selected).try_as<FrameworkElement>()) options.Position(anchor.TransformToVisual(list_).TransformPoint({0, static_cast<float>(anchor.ActualHeight())}));
+    menu.ShowAt(list_, options); args.Handled(true);
+}
+fire_and_forget SearchWindow::fileAction(int command, std::wstring path, bool folder) {
+    if (dialogOpen_ || files::active()) co_return;
+    try {
+        if (command <= 2) {
+            if (command == 2) { Windows::ApplicationModel::DataTransfer::DataPackage data; data.SetText(path); Windows::ApplicationModel::DataTransfer::Clipboard::SetContent(data); notice("filesearch.copied"); }
+            else if (command == 1) { PIDLIST_ABSOLUTE item{}; bool ok = SUCCEEDED(SHParseDisplayName(path.c_str(), nullptr, &item, 0, nullptr)); if (ok) { ok = SUCCEEDED(SHOpenFolderAndSelectItems(item, 0, nullptr, 0)); CoTaskMemFree(item); } if (!ok) notice("filesearch.action_failed"); }
+            else if (reinterpret_cast<INT_PTR>(ShellExecuteW(hwnd_, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32) notice("filesearch.action_failed");
+            co_return;
+        }
+        if (command == 3 || command == 4) { notice(SUCCEEDED(files::clipboard(path, command == 4)) ? (command == 4 ? "filesearch.cut_ready" : "filesearch.copy_ready") : "filesearch.action_failed"); co_return; }
+        if (command == 9) { if (!files::properties(path, hwnd_)) notice("filesearch.action_failed"); co_return; }
+        files::Request request; request.owner = hwnd_; request.index = index_; request.sources.emplace_back(path);
+        if (command == 5) { request = files::pasteRequest(folder ? std::filesystem::path(path) : std::filesystem::path(path).parent_path(), hwnd_); request.index = index_; if (request.sources.empty()) { notice("filesearch.paste_empty"); co_return; } }
+        else if (command == 8) {
+            request.kind = files::Kind::Shortcut; PWSTR desktop{}; check_hresult(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desktop)); request.destination = desktop; CoTaskMemFree(desktop);
+        } else {
+            dialogOpen_ = true; files::dialog(true); ContentDialog dialog; dialog.XamlRoot(root_.XamlRoot()); dialog.RequestedTheme(root_.ActualTheme()); dialog.CloseButtonText(tr("common.cancel"));
+            TextBox name; name.MaxLength(255); name.Text(std::filesystem::path(path).filename().wstring());
+            if (command == 6) dialog.DefaultButton(ContentDialogButton::Primary);
+            if (command == 6) { request.kind = files::Kind::Rename; dialog.Title(box_value(tr("filesearch.rename"))); name.Header(box_value(tr("filesearch.new_name"))); dialog.Content(name); dialog.PrimaryButtonText(tr("common.save")); dialog.PrimaryButtonClick([name](auto const&, ContentDialogButtonClickEventArgs const& args) { if (!files::validName(std::wstring(name.Text()))) { name.Header(box_value(tr("filesearch.invalid_name"))); args.Cancel(true); } }); }
+            else { request.kind = files::Kind::Recycle; dialog.Title(box_value(tr("filesearch.delete"))); dialog.Content(box_value(std::wstring(tr("filesearch.delete_confirm")) + L"\n" + path)); dialog.PrimaryButtonText(tr("filesearch.delete")); }
+            auto chosen = co_await dialog.ShowAsync(); dialogOpen_ = false; files::dialog(false);
+            if (chosen != ContentDialogResult::Primary) co_return;
+            if (command == 6) { request.name = name.Text(); if (request.name == std::filesystem::path(path).filename().wstring()) co_return; }
+        }
+        if (!files::start(std::move(request))) notice("filesearch.file_failed");
+    } catch (...) { if (dialogOpen_) files::dialog(false); dialogOpen_ = false; notice("filesearch.action_failed"); }
 }
 void SearchWindow::notice(char const* key) { noticeKey_ = key; noticeUntil_ = GetTickCount64() + 2500; status(); }
 void SearchWindow::action(int kind) {

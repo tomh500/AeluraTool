@@ -2,6 +2,7 @@
 #include "FileSearch.h"
 #include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
+#include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <winrt/Microsoft.UI.Dispatching.h>
 
 namespace aelura::filesearch {
@@ -22,6 +23,8 @@ private:
     void status();
     void layout();
     void notice(char const* key);
+    void context(winrt::Microsoft::UI::Xaml::Input::ContextRequestedEventArgs const& args);
+    winrt::fire_and_forget fileAction(int command, std::wstring path, bool folder);
     std::shared_ptr<Index> index_;
     winrt::Microsoft::UI::Xaml::Window window_{nullptr};
     winrt::Microsoft::UI::Xaml::Controls::Grid root_{nullptr};
@@ -36,6 +39,8 @@ private:
     uint64_t indexRevision_{}, lastQueryTime_{};
     char const* noticeKey_{};
     uint64_t noticeUntil_{};
+    uint64_t fileRevision_{};
+    bool menuOpen_{}, dialogOpen_{};
     bool closing_{}, visible_{}, searching_{};
     bool composing_{}, compositionKey_{}, syncingEngine_{};
     HWND hwnd_{};
