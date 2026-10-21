@@ -468,5 +468,12 @@
   "filesearch.skipped": "；无法读取或已跳过的目录：",
   "filesearch.cached": "（已载入保存的索引；文件变化后请刷新）",
   "filesearch.cache_failed": "。索引可用，但未能保存；下次启动需重新收录。",
+  "filesearch.use_sdk": "使用 Everything SDK（Beta）",
+  "filesearch.refresh_results": "刷新结果",
+  "filesearch.sdk_hint": "需要已安装的 Everything 在后台运行并允许 IPC（非 Lite 版）。使用 Everything 搜索语法；↑ ↓ 选择 · Enter 打开 · Ctrl+Enter 定位。",
+  "filesearch.sdk_active": "正在使用 Everything 的索引，结果自动更新。",
+  "filesearch.sdk_unavailable": "无法连接 Everything。请确认 Everything（非 Lite 版）已在后台运行并允许 IPC，或关闭此选项使用内置检索。",
+  "filesearch.sdk_timeout": "Everything 响应超时。请稍后重试，或关闭此选项使用内置检索。",
+  "filesearch.setting_failed": "无法保存检索方式，已保留原设置。",
   "filesearch.wait_index": "请等待索引建立完成，或先点击“取消建库”再退出。"
 }

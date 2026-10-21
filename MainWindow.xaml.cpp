@@ -124,7 +124,7 @@ using aelura::i18n::tr;
             DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         };
         Root().ActualThemeChanged([titleTheme](auto const&, auto const&) { titleTheme(); }); titleTheme();
-        Root().SizeChanged([this](auto const&, auto const&) { FileSearchHost().Height((std::max)(320.0, Root().ActualHeight() - 320.0)); });
+        Root().SizeChanged([this](auto const&, auto const&) { FileSearchHost().Height((std::max)(500.0, Root().ActualHeight() - 320.0)); });
         ThemeChoice().SelectionChanged([this](auto const&, auto const&) {
             if (localizing_) return;
             int selected = ThemeChoice().SelectedIndex();

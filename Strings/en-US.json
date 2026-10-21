@@ -468,5 +468,12 @@
   "filesearch.skipped": "; unreadable or skipped folders: ",
   "filesearch.cached": " (saved index loaded; refresh after file changes)",
   "filesearch.cache_failed": ". The index is usable but could not be saved; it will rebuild on next start.",
+  "filesearch.use_sdk": "Use Everything SDK (Beta)",
+  "filesearch.refresh_results": "Refresh results",
+  "filesearch.sdk_hint": "Requires an installed Everything client running with IPC enabled (not Lite). Uses Everything search syntax; ↑ ↓ Select · Enter Open · Ctrl+Enter Show in folder.",
+  "filesearch.sdk_active": "Using the Everything index; results update automatically.",
+  "filesearch.sdk_unavailable": "Cannot connect to Everything. Run Everything (not Lite) with IPC enabled, or turn this option off to use built-in search.",
+  "filesearch.sdk_timeout": "Everything did not respond in time. Retry later or turn this option off to use built-in search.",
+  "filesearch.setting_failed": "Could not save the search mode. The previous setting was kept.",
   "filesearch.wait_index": "Wait for indexing to finish, or select Cancel indexing before exiting."
 }

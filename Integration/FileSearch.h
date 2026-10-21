@@ -30,19 +30,22 @@ public:
     void cancel();
     Progress progress() const;
     IndexSnapshot snapshot() const;
+    bool everything() const { return everything_; }
+    bool setEverything(bool enabled);
 private:
     void run(); void build(); bool load(); bool save();
     void publish(std::shared_ptr<Batch> const& batch, uint64_t skipped);
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::atomic<bool> stopping_{false}, cancel_{false};
-    bool pending_{}, loaded_{};
+    std::atomic<bool> everything_{false};
+    bool pending_{}, loaded_{}, restartBuiltin_{};
     std::filesystem::path cache_;
     std::vector<std::filesystem::path> roots_;
     IndexSnapshot data_;
     std::thread worker_;
 };
-enum class State { Idle, Searching, Ready, InvalidQuery, Failed };
+enum class State { Idle, Searching, Ready, InvalidQuery, Failed, EngineUnavailable, TimedOut };
 struct Snapshot {
     uint64_t generation{}, sourceRevision{}, total{};
     State state{State::Idle}; std::vector<Item> items;

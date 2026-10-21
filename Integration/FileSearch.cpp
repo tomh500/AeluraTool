@@ -1,5 +1,6 @@
 #include "FileSearch.h"
 #include "NtfsFileIndex.h"
+#include "EverythingSearch.h"
 #include <algorithm>
 #include <cwctype>
 #include <fstream>
@@ -61,16 +62,36 @@ void writeString(std::ostream& output, std::wstring const& value) {
 }
 }
 Index::Index(std::filesystem::path cache, std::vector<std::filesystem::path> roots) : cache_(std::move(cache)),
-    roots_(roots.empty() ? drives() : std::move(roots)), worker_([this] { run(); }) { refresh(); }
+    roots_(roots.empty() ? drives() : std::move(roots)), worker_([this] { run(); }) {
+    auto settings = cache_; settings += L".ini";
+    everything_ = !cache_.empty() && GetPrivateProfileIntW(L"Search", L"EverythingSDK", 0, settings.c_str()) == 1;
+    if (!everything_) refresh();
+}
 Index::~Index() { stopping_ = true; cancel_ = true; wake_.notify_one(); if (worker_.joinable()) worker_.join(); }
 void Index::refresh() {
-    std::lock_guard lock(mutex_); if (data_.progress.running) return;
+    std::lock_guard lock(mutex_); if (data_.progress.running || everything_) return;
     cancel_ = false; pending_ = true; data_.progress.running = true;
     data_.progress.cancelled = data_.progress.failed = data_.progress.cacheFailed = false; ++data_.progress.revision; wake_.notify_one();
 }
-void Index::cancel() { cancel_ = true; }
+void Index::cancel() { std::lock_guard lock(mutex_); restartBuiltin_ = false; cancel_ = true; }
 Progress Index::progress() const { std::lock_guard lock(mutex_); return data_.progress; }
 IndexSnapshot Index::snapshot() const { std::lock_guard lock(mutex_); return data_; }
+bool Index::setEverything(bool enabled) {
+    if (everything_ == enabled) return true;
+    if (!cache_.empty()) {
+        std::error_code error; std::filesystem::create_directories(cache_.parent_path(), error);
+        auto settings = cache_; settings += L".ini";
+        if (error || !WritePrivateProfileStringW(L"Search", L"EverythingSDK", enabled ? L"1" : L"0", settings.c_str())) return false;
+    }
+    everything_ = enabled;
+    {
+        std::lock_guard lock(mutex_); ++data_.progress.revision;
+        if (enabled) { restartBuiltin_ = false; if (data_.progress.running) cancel_ = true; }
+        else if (data_.progress.running && cancel_) restartBuiltin_ = true;
+    }
+    if (!enabled && !progress().running && (progress().indexed == 0 || progress().cancelled)) refresh();
+    return true;
+}
 void Index::publish(std::shared_ptr<Batch> const& batch, uint64_t skipped) {
     std::lock_guard lock(mutex_);
     if (!batch->empty()) { data_.batches.push_back(batch); data_.progress.indexed += batch->size(); }
@@ -184,7 +205,10 @@ void Index::run() {
             if (!reused) build();
         }
         catch (...) { std::lock_guard lock(mutex_); data_.progress.failed = true; }
-        std::lock_guard lock(mutex_); data_.progress.running = false; ++data_.progress.revision;
+        std::lock_guard lock(mutex_);
+        if (restartBuiltin_ && !everything_) { restartBuiltin_ = false; pending_ = true; cancel_ = false; data_.progress.running = true; data_.progress.cancelled = false; }
+        else data_.progress.running = false;
+        ++data_.progress.revision;
     }
 }
 void preserveResultOrder(std::vector<Item> const& previous, std::vector<Item>& incoming) {
@@ -265,7 +289,11 @@ void Session::run() {
         uint64_t id; std::wstring query; Options options;
         { std::unique_lock lock(mutex_); wake_.wait(lock, [this] { return stopping_ || pending_; }); if (stopping_) break; id = generation_; query = query_; options = options_; pending_ = false; }
         Snapshot result;
-        try { result = match(index_->snapshot(), query, options, [this, id] { return stopping_ || generation_ != id; }); }
+        try {
+            auto cancelled = [this, id] { return stopping_ || generation_ != id; };
+            if (index_->everything()) { result = queryEverything(query, options, cancelled); result.sourceRevision = index_->progress().revision; }
+            else result = match(index_->snapshot(), query, options, cancelled);
+        }
         catch (...) { result.state = State::Failed; }
         result.generation = id; std::lock_guard lock(mutex_); if (!stopping_ && generation_ == id) result_ = std::move(result);
     }

@@ -22,7 +22,7 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
       <Grid.Resources><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/></Style></Grid.Resources>
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <TextBox x:Name="Query" FontSize="20" MaxLength="512"/>
-      <StackPanel x:Name="Options" Grid.Row="1" Orientation="Horizontal" Spacing="14"><CheckBox x:Name="MatchPath"/><CheckBox x:Name="MatchCase"/><CheckBox x:Name="WholeWord"/><CheckBox x:Name="Regex"/></StackPanel>
+      <StackPanel x:Name="Options" Grid.Row="1" Spacing="4"><CheckBox x:Name="EverythingSDK"/><StackPanel Orientation="Horizontal" Spacing="14"><CheckBox x:Name="MatchPath"/><CheckBox x:Name="MatchCase"/><CheckBox x:Name="WholeWord"/><CheckBox x:Name="Regex"/></StackPanel></StackPanel>
       <StackPanel x:Name="Feedback" Grid.Row="2" Spacing="4"><TextBlock x:Name="State" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="IndexState" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
       <ListView x:Name="Results" Grid.Row="3" SelectionMode="Single" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch"><ListView.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Padding="4,7"/></DataTemplate></ListView.ItemTemplate></ListView>
       <StackPanel x:Name="Actions" Grid.Row="4" Spacing="10"><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Open"/><Button x:Name="Locate"/><Button x:Name="Copy"/><Button x:Name="Refresh"/><Button x:Name="CancelIndex"/></StackPanel><TextBlock x:Name="Hint" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
@@ -47,6 +47,10 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
     });
     poll_ = queue.CreateTimer(); poll_.Interval(std::chrono::milliseconds(60));
     poll_.Tick([this](auto const&, auto const&) {
+        auto engine = root_.FindName(L"EverythingSDK").as<CheckBox>();
+        if (engine.IsChecked().Value() != index_->everything()) {
+            syncingEngine_ = true; engine.IsChecked(index_->everything()); syncingEngine_ = false; changed();
+        }
         if (searching_) {
             auto next = session_.snapshot();
             if (next.generation == generation_ && next.state != State::Searching) {
@@ -54,7 +58,7 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
             }
         }
         auto progress = index_->progress();
-        if (!composing_ && !debounce_.IsRunning() && !searching_ && progress.revision != indexRevision_ && GetTickCount64() - lastQueryTime_ >= 1000 && !query_.Text().empty()) {
+        if (!composing_ && !debounce_.IsRunning() && !searching_ && (index_->everything() || progress.revision != indexRevision_) && GetTickCount64() - lastQueryTime_ >= 1000 && !query_.Text().empty()) {
             debounce_.Start();
         }
         status();
@@ -63,6 +67,15 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
     query_.Loaded([this](auto const&, auto const&) { if (visible_) query_.Focus(FocusState::Programmatic); });
     query_.TextCompositionStarted([this](auto const&, auto const&) { composing_ = true; changed(); });
     query_.TextCompositionEnded([this](auto const&, auto const&) { composing_ = false; changed(); });
+    auto engine = root_.FindName(L"EverythingSDK").as<CheckBox>(); engine.IsChecked(index_->everything());
+    auto changeEngine = [this, engine](auto const&, auto const&) {
+        if (syncingEngine_) return;
+        if (!index_->setEverything(engine.IsChecked().Value())) {
+            syncingEngine_ = true; engine.IsChecked(index_->everything()); syncingEngine_ = false; notice("filesearch.setting_failed"); return;
+        }
+        changed(); status();
+    };
+    engine.Checked(changeEngine); engine.Unchecked(changeEngine);
     for (auto name : {L"MatchPath", L"MatchCase", L"WholeWord", L"Regex"}) {
         auto box = root_.FindName(name).as<CheckBox>();
         box.Checked([this](auto const&, auto const&) { changed(); }); box.Unchecked([this](auto const&, auto const&) { changed(); });
@@ -71,7 +84,7 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
     for (auto name : {L"Open", L"Locate", L"Copy"}) {
         root_.FindName(name).as<Button>().Click([this, kind](auto const&, auto const&) { action(kind); }); ++kind;
     }
-    root_.FindName(L"Refresh").as<Button>().Click([this](auto const&, auto const&) { index_->refresh(); status(); });
+    root_.FindName(L"Refresh").as<Button>().Click([this](auto const&, auto const&) { if (index_->everything()) debounce_.Start(); else index_->refresh(); status(); });
     root_.FindName(L"CancelIndex").as<Button>().Click([this](auto const&, auto const&) { index_->cancel(); status(); });
     list_.DoubleTapped([this](auto const&, auto const&) { action(0); });
     list_.AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, Input::KeyRoutedEventArgs const& args) {
@@ -123,13 +136,14 @@ void SearchWindow::appearance(ElementTheme theme) {
 void SearchWindow::localize() {
     root_.Language(aelura::i18n::chinese() ? L"zh-CN" : L"en-US");
     if (window_) window_.Title(tr("filesearch.title")); query_.PlaceholderText(tr("filesearch.placeholder"));
+    root_.FindName(L"EverythingSDK").as<CheckBox>().Content(box_value(tr("filesearch.use_sdk")));
     Automation::AutomationProperties::SetName(query_, tr("filesearch.title"));
     Automation::AutomationProperties::SetName(list_, tr("filesearch.results"));
     for (auto const& pair : {std::pair{L"MatchPath", "filesearch.match_path"}, {L"MatchCase", "filesearch.match_case"}, {L"WholeWord", "filesearch.whole_word"}, {L"Regex", "filesearch.regex"}})
         root_.FindName(pair.first).as<CheckBox>().Content(box_value(tr(pair.second)));
     for (auto const& pair : {std::pair{L"Open", "filesearch.open_file"}, {L"Locate", "filesearch.locate"}, {L"Copy", "filesearch.copy"}, {L"Refresh", "filesearch.refresh"}, {L"CancelIndex", "filesearch.cancel_index"}})
         root_.FindName(pair.first).as<Button>().Content(box_value(tr(pair.second)));
-    root_.FindName(L"Hint").as<TextBlock>().Text(tr("filesearch.hint")); status();
+    status();
 }
 void SearchWindow::changed() {
     if (!visible_) return;
@@ -145,7 +159,7 @@ void SearchWindow::layout() {
     const bool expanded = !query_.Text().empty();
     for (auto name : {L"Options", L"Feedback", L"Results", L"Actions"}) root_.FindName(name).as<UIElement>().Visibility(expanded ? Visibility::Visible : Visibility::Collapsed);
     const auto scale = GetDpiForWindow(hwnd_) / 96.0;
-    window_.AppWindow().Resize({static_cast<int>(760 * scale), static_cast<int>((expanded ? 470 : 84) * scale)});
+    window_.AppWindow().Resize({static_cast<int>(760 * scale), static_cast<int>((expanded ? 520 : 84) * scale)});
 }
 void SearchWindow::render() {
     // Keep surviving rows in place during background index updates. Never reset
@@ -165,12 +179,13 @@ void SearchWindow::render() {
     auto at = std::find_if(result_.items.begin(), result_.items.end(), [&](auto const& item) { return item.path == selected; });
     if (at != result_.items.end()) list_.SelectedIndex(static_cast<int>(at - result_.items.begin()));
     else if (rendered_.empty() && !result_.items.empty()) list_.SelectedIndex(0);
+    else if (!selected.empty()) list_.SelectedIndex(-1);
     rendered_ = result_.items;
     status();
 }
 void SearchWindow::status() {
     auto key = result_.state == State::Idle ? "filesearch.idle" : result_.state == State::Searching ? "filesearch.searching" :
-        result_.state == State::InvalidQuery ? "filesearch.invalid_query" :
+        result_.state == State::InvalidQuery ? "filesearch.invalid_query" : result_.state == State::EngineUnavailable ? "filesearch.sdk_unavailable" : result_.state == State::TimedOut ? "filesearch.sdk_timeout" :
         result_.state == State::Ready ? (result_.items.empty() ? "filesearch.none" : "filesearch.count") : "filesearch.failed";
     std::wstring value = tr(key);
     if (result_.state == State::Ready && !result_.items.empty()) {
@@ -180,14 +195,18 @@ void SearchWindow::status() {
     state_.Text(value);
     if (noticeKey_ && GetTickCount64() < noticeUntil_) state_.Text(tr(noticeKey_));
     const auto progress = index_->progress();
+    const bool sdk = index_->everything();
+    root_.FindName(L"Hint").as<TextBlock>().Text(tr(sdk ? "filesearch.sdk_hint" : "filesearch.hint"));
     std::wstring indexText = tr(progress.running ? "filesearch.indexing" : progress.cancelled ? "filesearch.index_cancelled" : progress.failed ? "filesearch.index_failed" : "filesearch.index_ready");
     indexText += std::to_wstring(progress.indexed);
     if (progress.skipped) indexText += std::wstring(tr("filesearch.skipped")) + std::to_wstring(progress.skipped);
     if (progress.cached) indexText += tr("filesearch.cached");
     if (progress.cacheFailed) indexText += tr("filesearch.cache_failed");
-    root_.FindName(L"IndexState").as<TextBlock>().Text(indexText);
-    root_.FindName(L"Refresh").as<Button>().IsEnabled(!progress.running);
-    root_.FindName(L"CancelIndex").as<Button>().IsEnabled(progress.running);
+    root_.FindName(L"IndexState").as<TextBlock>().Text(sdk ? tr("filesearch.sdk_active") : indexText);
+    root_.FindName(L"Refresh").as<Button>().IsEnabled(sdk || !progress.running);
+    root_.FindName(L"Refresh").as<Button>().Content(box_value(tr(sdk ? "filesearch.refresh_results" : "filesearch.refresh")));
+    root_.FindName(L"CancelIndex").as<Button>().Visibility(sdk ? Visibility::Collapsed : Visibility::Visible);
+    root_.FindName(L"CancelIndex").as<Button>().IsEnabled(!sdk && progress.running);
     for (auto name : {L"Open", L"Locate", L"Copy"}) root_.FindName(name).as<Button>().IsEnabled(result_.state == State::Ready && !result_.items.empty());
 }
 void SearchWindow::notice(char const* key) { noticeKey_ = key; noticeUntil_ = GetTickCount64() + 2500; status(); }

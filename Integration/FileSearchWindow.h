@@ -37,7 +37,7 @@ private:
     char const* noticeKey_{};
     uint64_t noticeUntil_{};
     bool closing_{}, visible_{}, searching_{};
-    bool composing_{}, compositionKey_{};
+    bool composing_{}, compositionKey_{}, syncingEngine_{};
     HWND hwnd_{};
 };
 }
