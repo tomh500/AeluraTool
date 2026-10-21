@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 namespace aelura::filesearch {
+namespace ntfs { struct Journal; }
 inline constexpr size_t ResultLimit = 200;
 struct Options { bool path{}, matchCase{}, wholeWord{}, regex{}; };
 struct Item { std::wstring name, path; bool folder{}; };
@@ -34,7 +35,7 @@ public:
     bool setEverything(bool enabled);
     void updatePaths(std::vector<std::filesystem::path> paths);
 private:
-    void run(); void build(); void update(std::vector<std::filesystem::path> const& paths); bool load(); bool save();
+    void run(); void build(); void update(std::vector<std::filesystem::path> const& paths, bool persist = true); bool load(); bool save();
     void publish(std::shared_ptr<Batch> const& batch, uint64_t skipped);
     mutable std::mutex mutex_;
     std::condition_variable wake_;
@@ -44,6 +45,8 @@ private:
     std::filesystem::path cache_;
     std::vector<std::filesystem::path> roots_;
     std::vector<std::filesystem::path> changedPaths_;
+    std::vector<std::shared_ptr<ntfs::Journal>> journals_; // Worker-owned metadata graphs.
+    bool cacheDirty_{}; ULONGLONG lastCacheSave_{};
     IndexSnapshot data_;
     std::thread worker_;
 };

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cwctype>
 #include <fstream>
+#include <chrono>
 #define _REGEX_MAX_COMPLEXITY_COUNT 100000L
 #define _REGEX_MAX_STACK_COUNT 1000L
 #include <regex>
@@ -160,9 +161,11 @@ bool Index::save() {
     output.flush(); const bool ok = output.good(); output.close();
     if (cancel_ || stopping_) { DeleteFileW(temporary.c_str()); return true; }
     if (!ok || !MoveFileExW(temporary.c_str(), cache_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) { DeleteFileW(temporary.c_str()); return false; }
+    cacheDirty_ = false; lastCacheSave_ = GetTickCount64();
     return true;
 }
 void Index::build() {
+    journals_.clear();
     auto previous = snapshot(); bool replaced = false; uint64_t skipped = 0;
     const bool retain = previous.progress.cached || !previous.batches.empty();
     std::vector<std::shared_ptr<Batch const>> staged; uint64_t stagedCount = 0;
@@ -181,10 +184,14 @@ void Index::build() {
     auto pending = roots_;
     while (!pending.empty() && !cancel_ && !stopping_) {
         auto directory = std::move(pending.back()); pending.pop_back();
+        auto journal = directory.native().size() == 3 ? std::make_shared<ntfs::Journal>() : nullptr;
         if (ntfs::enumerate(directory, [&](std::wstring path, bool folder) {
             batch->push_back(entry(std::move(path), folder));
             if (batch->size() == BatchSize) flush();
-        }, [&] { return cancel_ || stopping_; })) continue;
+        }, [&] { return cancel_ || stopping_; }, journal.get())) {
+            if (journal && journal->active && !cancel_ && !stopping_) journals_.push_back(std::move(journal));
+            continue;
+        }
         auto attributes = GetFileAttributesW(directory.c_str());
         if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) { ++skipped; continue; }
         WIN32_FIND_DATAW found{}; FindHandle handle; auto pattern = directory / L"*";
@@ -213,18 +220,46 @@ void Index::build() {
         data_.progress.skipped = skipped; data_.progress.cancelled = cancel_; ++data_.progress.revision;
     }
     auto saved = save();
+    if (cancel_ || stopping_) journals_.clear();
     std::lock_guard lock(mutex_); data_.progress.cacheFailed = !saved;
 }
 void Index::run() {
     while (!stopping_) {
         std::vector<std::filesystem::path> changes;
-        { std::unique_lock lock(mutex_); wake_.wait(lock, [this] { return stopping_ || pending_; }); if (stopping_) break; pending_ = false; changes.swap(changedPaths_); }
+        bool idle = false;
+        { std::unique_lock lock(mutex_); idle = !wake_.wait_for(lock, std::chrono::seconds(2), [this] { return stopping_ || pending_; });
+          if (stopping_) break; if (!idle) { pending_ = false; changes.swap(changedPaths_); } }
+        if (idle) {
+            if (everything_ || cancel_) continue;
+            bool valid = true;
+            try {
+                for (auto const& journal : journals_) if (!journal->poll(changes, [this] { return stopping_ || cancel_; })) { valid = false; break; }
+                if (!valid) { journals_.clear(); refresh(); }
+                else {
+                    if (!cache_.empty()) changes.erase(std::remove_if(changes.begin(), changes.end(), [this](auto const& path) {
+                        auto value = path.wstring();
+                        for (auto suffix : {L"", L".tmp", L".ini", L".changes"}) if (!_wcsicmp(value.c_str(), (cache_.wstring() + suffix).c_str())) return true;
+                        return false;
+                    }), changes.end());
+                    if (!changes.empty()) {
+                        { std::lock_guard lock(mutex_); data_.progress.running = true; }
+                        update(changes, false);
+                        { std::lock_guard lock(mutex_); data_.progress.running = pending_; data_.progress.cancelled = cancel_; }
+                    }
+                    // A journal burst must not rewrite the entire cache every two seconds.
+                    if (cacheDirty_ && GetTickCount64() - lastCacheSave_ >= 30000 && !cancel_ && !stopping_) {
+                        auto saved = save(); std::lock_guard lock(mutex_); data_.progress.cacheFailed = !saved; ++data_.progress.revision;
+                    }
+                }
+            } catch (...) { journals_.clear(); std::lock_guard lock(mutex_); data_.progress.running = pending_; data_.progress.failed = true; ++data_.progress.revision; }
+            continue;
+        }
         try {
             bool reused = false;
             const bool existing = loaded_;
             if (!loaded_) { reused = load(); loaded_ = true; }
             if (!changes.empty() && (existing || reused) && !ledgerInvalid_) update(changes);
-            else if (!reused) build();
+            else if (!reused || std::any_of(roots_.begin(), roots_.end(), ntfs::journalAvailable)) build();
         }
         catch (...) { std::lock_guard lock(mutex_); data_.progress.failed = true; }
         std::lock_guard lock(mutex_);
@@ -239,7 +274,7 @@ void Index::run() {
         ++data_.progress.revision;
     }
 }
-void Index::update(std::vector<std::filesystem::path> const& paths) {
+void Index::update(std::vector<std::filesystem::path> const& paths, bool persist) {
     auto within = [](std::wstring const& value, std::wstring root) {
         while (root.size() > 3 && root.back() == L'\\') root.pop_back();
         return value.size() >= root.size() && CompareStringOrdinal(value.data(), static_cast<int>(root.size()), root.data(), static_cast<int>(root.size()), TRUE) == CSTR_EQUAL &&
@@ -282,7 +317,8 @@ void Index::update(std::vector<std::filesystem::path> const& paths) {
     if (cancel_ || stopping_) return;
     if (!batch->empty()) next.batches.push_back(batch);
     { std::lock_guard lock(mutex_); next.progress.revision = data_.progress.revision + 1; next.progress.running = true; next.progress.skipped = data_.progress.skipped; data_ = std::move(next); }
-    auto saved = save(); std::lock_guard lock(mutex_); data_.progress.cacheFailed = !saved;
+    cacheDirty_ = true;
+    if (persist) { auto saved = save(); std::lock_guard lock(mutex_); data_.progress.cacheFailed = !saved; }
 }
 void preserveResultOrder(std::vector<Item> const& previous, std::vector<Item>& incoming) {
     std::vector<Item> stable; stable.reserve(incoming.size());

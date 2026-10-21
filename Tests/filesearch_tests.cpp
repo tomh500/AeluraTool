@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <algorithm>
 namespace {
 using namespace aelura::filesearch;
 namespace fs = std::filesystem;
@@ -108,6 +109,27 @@ void run_filesearch_tests(fs::path const& root) {
     std::vector<char> encoded(record.RecordLength); std::memcpy(encoded.data(), &record, record.FileNameOffset);
     std::memcpy(encoded.data() + record.FileNameOffset, L"test", 8);
     check(ntfs::readRecords(encoded.data(), encoded.size(), records) && records.at(21).name == L"test", "MFT record parsing failed");
+    std::vector<ntfs::Change> changes;
+    check(ntfs::readChanges(encoded.data(), encoded.size(), changes) && changes.size() == 1 && changes[0].id == 21, "USN change parsing failed");
+    check(!ntfs::readChanges(encoded.data(), encoded.size() - 1, changes) && changes.size() == 1, "malformed USN buffer partially published");
+    ntfs::Journal journal; journal.root = L"C:\\"; journal.rootId = 5; journal.records = records; journal.journalId = 7; journal.next = 100;
+    USN_JOURNAL_DATA_V0 checkpoint{}; checkpoint.UsnJournalID = 7; checkpoint.FirstUsn = 90; checkpoint.LowestValidUsn = 90; checkpoint.NextUsn = 110;
+    check(journal.continuous(checkpoint), "valid USN checkpoint rejected");
+    checkpoint.UsnJournalID = 8; check(!journal.continuous(checkpoint), "recreated journal accepted"); checkpoint.UsnJournalID = 7;
+    checkpoint.FirstUsn = 101; check(!journal.continuous(checkpoint), "wrapped journal accepted"); checkpoint.FirstUsn = 90;
+    checkpoint.LowestValidUsn = 101; check(!journal.continuous(checkpoint), "invalid journal range accepted"); checkpoint.LowestValidUsn = 90;
+    checkpoint.NextUsn = 99; check(!journal.continuous(checkpoint), "future journal cursor accepted");
+    std::vector<fs::path> affected;
+    journal.apply({{10, {5, L"folder", FILE_ATTRIBUTE_DIRECTORY}, USN_REASON_RENAME_OLD_NAME},
+        {10, {5, L"renamed", FILE_ATTRIBUTE_DIRECTORY}, USN_REASON_RENAME_NEW_NAME},
+        {30, {10, L"new.txt", 0}, USN_REASON_FILE_CREATE},
+        {21, {10, L"test", 0}, USN_REASON_FILE_DELETE}}, affected);
+    check(ntfs::resolve(11, 5, journal.root, journal.records) == L"C:\\renamed\\file.txt" &&
+        ntfs::resolve(30, 5, journal.root, journal.records) == L"C:\\renamed\\new.txt" && !journal.records.count(21), "USN rename/create/delete graph update failed");
+    check(std::find(affected.begin(), affected.end(), fs::path(L"C:\\folder")) != affected.end() &&
+        std::find(affected.begin(), affected.end(), fs::path(L"C:\\renamed")) != affected.end(), "directory rename lost old or new subtree root");
+    affected.clear(); journal.apply({{31, {12, L"hidden.txt", 0}, USN_REASON_FILE_CREATE}}, affected);
+    check(affected.empty(), "USN update traversed a reparse parent");
     check(!ntfs::readRecords(encoded.data(), encoded.size() - 1, records), "truncated MFT record accepted");
     encoded[4] = 3; check(!ntfs::readRecords(encoded.data(), encoded.size(), records), "unsupported MFT version accepted");
     auto many = std::make_shared<Batch>();
