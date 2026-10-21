@@ -13,11 +13,12 @@ namespace aelura::filesearch {
 inline constexpr size_t ResultLimit = 200;
 struct Options { bool path{}, matchCase{}, wholeWord{}, regex{}; };
 struct Item { std::wstring name, path; bool folder{}; };
+void preserveResultOrder(std::vector<Item> const& previous, std::vector<Item>& incoming);
 struct Progress {
     uint64_t revision{}, indexed{}, skipped{};
-    bool running{}, cancelled{}, failed{}, limited{}, cached{};
+    bool running{}, cancelled{}, failed{}, cached{}, cacheFailed{};
 };
-struct Entry { Item item; std::wstring foldedName, foldedPath; };
+struct Entry { Item item; std::wstring foldedName; };
 using Batch = std::vector<Entry>;
 struct IndexSnapshot { Progress progress; std::vector<std::shared_ptr<Batch const>> batches; };
 // Shared by the WinUI page and desktop input box. Only file metadata is indexed.
@@ -30,7 +31,7 @@ public:
     Progress progress() const;
     IndexSnapshot snapshot() const;
 private:
-    void run(); void build(); void load(); void save();
+    void run(); void build(); bool load(); bool save();
     void publish(std::shared_ptr<Batch> const& batch, uint64_t skipped);
     mutable std::mutex mutex_;
     std::condition_variable wake_;

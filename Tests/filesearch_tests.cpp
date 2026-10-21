@@ -1,4 +1,5 @@
 #include "../Integration/FileSearch.h"
+#include "../Integration/NtfsFileIndex.h"
 #include "../Integration/FileMigration.h"
 #include "../Integration/HotkeyManager.h"
 #include "../Integration/ToolCatalog.h"
@@ -57,6 +58,13 @@ void run_filesearch_tests(fs::path const& root) {
     check(result.generation == newest && result.items.size() == 1, "stale query replaced latest result");
     session.search(L"Alpha"); session.cancel(); Sleep(10); check(session.snapshot().state == State::Idle, "cancel retained a result");
     fs::rename(files / L"Alpha.txt", files / L"Renamed.txt"); fs::remove(files / L"Alphabet.md"); write(files / L"New.txt");
+    {
+        Index reused(cache, {files}); waitIndex(reused);
+        check(reused.progress().cached && match(reused.snapshot(), L"Alphabet", {}).total == 1 &&
+            match(reused.snapshot(), L"Renamed", {}).total == 0, "startup discarded cache and rescanned files");
+        reused.refresh(); waitIndex(reused);
+        check(!reused.progress().cached && match(reused.snapshot(), L"Renamed", {}).total == 1, "explicit refresh failed after cache reuse");
+    }
     index->refresh(); waitIndex(*index); source = index->snapshot();
     check(match(source, L"Renamed", {}).total == 1 && match(source, L"Alphabet", {}).total == 0 && match(source, L"New", {}).total == 1, "refresh did not reflect rename/delete/create");
     session.search(L"Renamed"); result = wait(session);
@@ -68,10 +76,35 @@ void run_filesearch_tests(fs::path const& root) {
     auto badCache = root / L"bad.bin"; std::ofstream(badCache) << "truncated cache";
     Index repaired(badCache, {files}); waitIndex(repaired); check(repaired.progress().indexed == 7, "corrupt cache recovery failed");
     Index missing(root / L"missing.bin", {root / L"absent"}); waitIndex(missing); check(missing.progress().skipped == 1, "missing root not reported");
+    Index changedRoots(cache, {root / L"absent"}); waitIndex(changedRoots);
+    check(!changedRoots.progress().cached && changedRoots.progress().indexed == 0, "cache from different roots was reused");
+    write(root / L"blocked-cache"); Index unsaved(root / L"blocked-cache" / L"index.bin", {files}); waitIndex(unsaved);
+    check(unsaved.progress().cacheFailed && unsaved.progress().indexed == 7, "cache save failure was silent or discarded the usable index");
+    // Test metadata parsing and path reconstruction entirely with synthetic data.
+    ntfs::Records records{{10, {5, L"folder", FILE_ATTRIBUTE_DIRECTORY}}, {11, {10, L"file.txt", 0}},
+        {12, {5, L"junction", FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT}}, {13, {12, L"hidden.txt", 0}},
+        {14, {15, L"cycle", FILE_ATTRIBUTE_DIRECTORY}}, {15, {14, L"cycle", FILE_ATTRIBUTE_DIRECTORY}}};
+    check(ntfs::resolve(11, 5, L"C:\\", records) == L"C:\\folder\\file.txt", "MFT parent path resolution failed");
+    check(ntfs::resolve(13, 5, L"C:\\", records).empty() && ntfs::resolve(14, 5, L"C:\\", records).empty(), "MFT followed reparse point or cycle");
+    USN_RECORD_V2 record{}; record.RecordLength = static_cast<DWORD>(offsetof(USN_RECORD_V2, FileName) + 8);
+    record.MajorVersion = 2; record.FileReferenceNumber = 21; record.ParentFileReferenceNumber = 10;
+    record.FileNameLength = 8; record.FileNameOffset = static_cast<WORD>(offsetof(USN_RECORD_V2, FileName));
+    std::vector<char> encoded(record.RecordLength); std::memcpy(encoded.data(), &record, record.FileNameOffset);
+    std::memcpy(encoded.data() + record.FileNameOffset, L"test", 8);
+    check(ntfs::readRecords(encoded.data(), encoded.size(), records) && records.at(21).name == L"test", "MFT record parsing failed");
+    check(!ntfs::readRecords(encoded.data(), encoded.size() - 1, records), "truncated MFT record accepted");
+    encoded[4] = 3; check(!ntfs::readRecords(encoded.data(), encoded.size(), records), "unsupported MFT version accepted");
     auto many = std::make_shared<Batch>();
-    for (int i = 0; i < 500; ++i) many->push_back({{L"item.txt", L"C:\\fixture\\item.txt", false}, L"item.txt", L"c:\\fixture\\item.txt"});
+    for (int i = 0; i < 500; ++i) many->push_back({{L"item.txt", L"C:\\fixture\\item.txt", false}, L"item.txt"});
     IndexSnapshot large; large.batches.push_back(many); result = match(large, L"item", {});
     check(result.total == 500 && result.items.size() == ResultLimit, "result cap or total incorrect");
+    std::vector<Item> visible{{L"B", L"C:\\B"}, {L"C", L"C:\\C"}};
+    std::vector<Item> incoming{{L"A", L"C:\\A"}, {L"B", L"C:\\B"}, {L"C", L"C:\\C"}};
+    preserveResultOrder(visible, incoming);
+    check(incoming[0].path == L"C:\\B" && incoming[1].path == L"C:\\C" && incoming[2].path == L"C:\\A", "index update reordered visible rows");
+    visible = incoming; incoming = {{L"C renamed", L"C:\\C"}, {L"D", L"C:\\D"}};
+    preserveResultOrder(visible, incoming);
+    check(incoming.size() == 2 && incoming[0].name == L"C renamed" && incoming[1].path == L"C:\\D", "row removal/update lost surviving order");
     HWND window = CreateWindowW(L"STATIC", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
     aelura::hotkeys::Manager manager; manager.load(window, root / "keys.ini"); std::wstring error; const size_t keyIndex = 6;
     check(manager.bindings[keyIndex].id == L"filesearch" && manager.bindings[keyIndex].enabled, "search hotkey default missing");

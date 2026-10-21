@@ -466,7 +466,7 @@
   "filesearch.index_cancelled": "建库已取消，保留可用索引：",
   "filesearch.index_failed": "建库未完成，可刷新重试。已收录：",
   "filesearch.skipped": "；无法读取或已跳过的目录：",
-  "filesearch.index_limit": "。达到 200 万项上限，索引范围不完整。",
-  "filesearch.cached": "（使用上次保存的索引）",
+  "filesearch.cached": "（已载入保存的索引；文件变化后请刷新）",
+  "filesearch.cache_failed": "。索引可用，但未能保存；下次启动需重新收录。",
   "filesearch.wait_index": "请等待索引建立完成，或先点击“取消建库”再退出。"
 }

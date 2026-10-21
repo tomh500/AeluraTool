@@ -1,4 +1,5 @@
 #include "FileSearch.h"
+#include "NtfsFileIndex.h"
 #include <algorithm>
 #include <cwctype>
 #include <fstream>
@@ -7,8 +8,8 @@
 #include <regex>
 namespace aelura::filesearch {
 namespace {
-constexpr uint64_t MaxEntries = 2000000;
 constexpr size_t BatchSize = 2048;
+constexpr uint64_t CacheMagic = 0x324958444E494641ULL;
 std::wstring fold(std::wstring value) {
     if (value.empty()) return value;
     std::wstring normalized(value.size(), L'\0');
@@ -18,7 +19,8 @@ std::wstring fold(std::wstring value) {
 }
 Entry entry(std::wstring path, bool folder) {
     auto name = std::filesystem::path(path).filename().wstring();
-    return {{name, path, folder}, fold(name), fold(path)};
+    // Most searches use names. Avoid keeping a second full path for every file.
+    return {{name, std::move(path), folder}, fold(name)};
 }
 std::vector<std::filesystem::path> drives() {
     std::vector<std::filesystem::path> roots; wchar_t buffer[512]{};
@@ -64,7 +66,7 @@ Index::~Index() { stopping_ = true; cancel_ = true; wake_.notify_one(); if (work
 void Index::refresh() {
     std::lock_guard lock(mutex_); if (data_.progress.running) return;
     cancel_ = false; pending_ = true; data_.progress.running = true;
-    data_.progress.cancelled = data_.progress.failed = false; ++data_.progress.revision; wake_.notify_one();
+    data_.progress.cancelled = data_.progress.failed = data_.progress.cacheFailed = false; ++data_.progress.revision; wake_.notify_one();
 }
 void Index::cancel() { cancel_ = true; }
 Progress Index::progress() const { std::lock_guard lock(mutex_); return data_.progress; }
@@ -74,52 +76,75 @@ void Index::publish(std::shared_ptr<Batch> const& batch, uint64_t skipped) {
     if (!batch->empty()) { data_.batches.push_back(batch); data_.progress.indexed += batch->size(); }
     data_.progress.skipped = skipped; ++data_.progress.revision;
 }
-void Index::load() {
-    if (cache_.empty() || cancel_ || stopping_) return;
-    std::ifstream input(cache_, std::ios::binary); if (!input) return;
+bool Index::load() {
+    if (cache_.empty() || cancel_ || stopping_) return false;
+    std::ifstream input(cache_, std::ios::binary); if (!input) return false;
     uint64_t magic{}, count{}; input.read(reinterpret_cast<char*>(&magic), 8); input.read(reinterpret_cast<char*>(&count), 8);
-    if (!input || magic != 0x314958444E494641ULL || count > MaxEntries) return;
+    // Bound allocations by the actual cache length, not an arbitrary file-count ceiling.
+    std::error_code ec; auto bytes = std::filesystem::file_size(cache_, ec);
+    if (!input || magic != CacheMagic || ec || bytes < 16 || count > (bytes - 16) / 7) return false;
+    uint32_t rootCount{}; input.read(reinterpret_cast<char*>(&rootCount), sizeof(rootCount));
+    if (!input || rootCount != roots_.size()) return false;
+    for (auto const& root : roots_) { std::wstring saved; if (!readString(input, saved) || saved != root.wstring()) return false; }
     IndexSnapshot cached; cached.progress.cached = true;
+    input.read(reinterpret_cast<char*>(&cached.progress.skipped), sizeof(cached.progress.skipped)); if (!input) return false;
     auto batch = std::make_shared<Batch>(); batch->reserve(BatchSize);
     for (uint64_t i = 0; i < count; ++i) {
-        if (cancel_ || stopping_) return;
+        if (cancel_ || stopping_) return false;
         std::wstring path; unsigned char folder{};
-        if (!readString(input, path) || !std::filesystem::path(path).is_absolute()) return;
-        input.read(reinterpret_cast<char*>(&folder), 1); if (!input || folder > 1) return;
+        if (!readString(input, path) || !std::filesystem::path(path).is_absolute()) return false;
+        input.read(reinterpret_cast<char*>(&folder), 1); if (!input || folder > 1) return false;
         batch->push_back(entry(std::move(path), folder != 0));
         if (batch->size() == BatchSize) { cached.batches.push_back(batch); batch = std::make_shared<Batch>(); batch->reserve(BatchSize); }
     }
     if (!batch->empty()) cached.batches.push_back(batch);
+    if (input.peek() != std::char_traits<char>::eof()) return false;
     cached.progress.indexed = count;
     std::lock_guard lock(mutex_); cached.progress.revision = data_.progress.revision + 1; cached.progress.running = true; data_ = std::move(cached);
+    return true;
 }
-void Index::save() {
-    if (cache_.empty() || cancel_ || stopping_) return;
-    auto data = snapshot(); if (data.progress.limited || data.progress.failed || data.progress.cancelled) return;
-    std::error_code ec; std::filesystem::create_directories(cache_.parent_path(), ec); if (ec) return;
+bool Index::save() {
+    if (cache_.empty() || cancel_ || stopping_) return true;
+    auto data = snapshot(); if (data.progress.failed || data.progress.cancelled) return true;
+    std::error_code ec; std::filesystem::create_directories(cache_.parent_path(), ec); if (ec) return false;
     auto temporary = cache_; temporary += L".tmp";
-    std::ofstream output(temporary, std::ios::binary | std::ios::trunc); const uint64_t magic = 0x314958444E494641ULL;
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc); const uint64_t magic = CacheMagic;
     output.write(reinterpret_cast<char const*>(&magic), 8); output.write(reinterpret_cast<char const*>(&data.progress.indexed), 8);
+    auto rootCount = static_cast<uint32_t>(roots_.size()); output.write(reinterpret_cast<char const*>(&rootCount), sizeof(rootCount));
+    for (auto const& root : roots_) writeString(output, root.wstring());
+    output.write(reinterpret_cast<char const*>(&data.progress.skipped), sizeof(data.progress.skipped));
     for (auto const& batch : data.batches) for (auto const& value : *batch) {
-        if (cancel_ || stopping_) { output.close(); DeleteFileW(temporary.c_str()); return; }
+        if (cancel_ || stopping_) { output.close(); DeleteFileW(temporary.c_str()); return true; }
         writeString(output, value.item.path); const unsigned char folder = value.item.folder ? 1 : 0; output.write(reinterpret_cast<char const*>(&folder), 1);
     }
     output.flush(); const bool ok = output.good(); output.close();
-    if (!ok || cancel_ || stopping_ || !MoveFileExW(temporary.c_str(), cache_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) DeleteFileW(temporary.c_str());
+    if (cancel_ || stopping_) { DeleteFileW(temporary.c_str()); return true; }
+    if (!ok || !MoveFileExW(temporary.c_str(), cache_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) { DeleteFileW(temporary.c_str()); return false; }
+    return true;
 }
 void Index::build() {
-    auto previous = snapshot(); bool replaced = false; uint64_t skipped = 0, count = 0;
+    auto previous = snapshot(); bool replaced = false; uint64_t skipped = 0;
+    const bool retain = previous.progress.cached || !previous.batches.empty();
+    std::vector<std::shared_ptr<Batch const>> staged; uint64_t stagedCount = 0;
     auto batch = std::make_shared<Batch>(); batch->reserve(BatchSize);
     auto flush = [&] {
+        if (retain) {
+            stagedCount += batch->size(); if (!batch->empty()) staged.push_back(batch);
+            batch = std::make_shared<Batch>(); batch->reserve(BatchSize); return;
+        }
         if (!replaced) {
             std::lock_guard lock(mutex_); data_.batches.clear(); data_.progress.indexed = 0; data_.progress.cached = false;
-            data_.progress.skipped = 0; data_.progress.limited = false; replaced = true;
+            data_.progress.skipped = 0; replaced = true;
         }
         publish(batch, skipped); batch = std::make_shared<Batch>(); batch->reserve(BatchSize);
     };
     auto pending = roots_;
-    while (!pending.empty() && !cancel_ && !stopping_ && count < MaxEntries) {
+    while (!pending.empty() && !cancel_ && !stopping_) {
         auto directory = std::move(pending.back()); pending.pop_back();
+        if (ntfs::enumerate(directory, [&](std::wstring path, bool folder) {
+            batch->push_back(entry(std::move(path), folder));
+            if (batch->size() == BatchSize) flush();
+        }, [&] { return cancel_ || stopping_; })) continue;
         auto attributes = GetFileAttributesW(directory.c_str());
         if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) { ++skipped; continue; }
         WIN32_FIND_DATAW found{}; FindHandle handle; auto pattern = directory / L"*";
@@ -127,10 +152,10 @@ void Index::build() {
         if (handle.value == INVALID_HANDLE_VALUE) { if (GetLastError() != ERROR_FILE_NOT_FOUND) ++skipped; continue; }
         DWORD error = ERROR_NO_MORE_FILES;
         do {
-            if (cancel_ || stopping_ || count >= MaxEntries) break;
+            if (cancel_ || stopping_) break;
             if (!wcscmp(found.cFileName, L".") || !wcscmp(found.cFileName, L"..")) continue;
             auto path = directory / found.cFileName; const bool folder = (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-            batch->push_back(entry(path.wstring(), folder)); ++count;
+            batch->push_back(entry(path.wstring(), folder));
             if (folder && !(found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) pending.push_back(std::move(path));
             if (batch->size() == BatchSize) flush();
             SetLastError(ERROR_NO_MORE_FILES);
@@ -142,18 +167,34 @@ void Index::build() {
         std::lock_guard lock(mutex_);
         if (cancel_ && !previous.batches.empty()) {
             data_.batches = std::move(previous.batches); data_.progress.indexed = previous.progress.indexed; data_.progress.cached = previous.progress.cached;
+        } else if (retain && !cancel_ && !stopping_) {
+            data_.batches = std::move(staged); data_.progress.indexed = stagedCount; data_.progress.cached = false;
         }
-        data_.progress.skipped = skipped; data_.progress.cancelled = cancel_; data_.progress.limited = count >= MaxEntries; ++data_.progress.revision;
+        data_.progress.skipped = skipped; data_.progress.cancelled = cancel_; ++data_.progress.revision;
     }
-    save();
+    auto saved = save();
+    std::lock_guard lock(mutex_); data_.progress.cacheFailed = !saved;
 }
 void Index::run() {
     while (!stopping_) {
         { std::unique_lock lock(mutex_); wake_.wait(lock, [this] { return stopping_ || pending_; }); if (stopping_) break; pending_ = false; }
-        try { if (!loaded_) { load(); loaded_ = true; } build(); }
+        try {
+            bool reused = false;
+            if (!loaded_) { reused = load(); loaded_ = true; }
+            if (!reused) build();
+        }
         catch (...) { std::lock_guard lock(mutex_); data_.progress.failed = true; }
         std::lock_guard lock(mutex_); data_.progress.running = false; ++data_.progress.revision;
     }
+}
+void preserveResultOrder(std::vector<Item> const& previous, std::vector<Item>& incoming) {
+    std::vector<Item> stable; stable.reserve(incoming.size());
+    for (auto const& old : previous) {
+        auto at = std::find_if(incoming.begin(), incoming.end(), [&](auto const& item) { return item.path == old.path; });
+        if (at != incoming.end()) { stable.push_back(std::move(*at)); incoming.erase(at); }
+    }
+    for (auto& item : incoming) stable.push_back(std::move(item));
+    incoming = std::move(stable);
 }
 Snapshot match(IndexSnapshot const& source, std::wstring const& query, Options options, std::function<bool()> const& cancelled) {
     Snapshot result; result.sourceRevision = source.progress.revision; result.state = State::Ready;
@@ -181,7 +222,8 @@ Snapshot match(IndexSnapshot const& source, std::wstring const& query, Options o
         size_t checked = 0;
         for (auto const& batch : source.batches) for (auto const& value : *batch) {
             if (++checked % 64 == 0 && cancelled && cancelled()) { result.state = State::Idle; result.items.clear(); return result; }
-            auto const& target = usePath ? (options.matchCase ? value.item.path : value.foldedPath) : (options.matchCase ? value.item.name : value.foldedName);
+            auto foldedPath = usePath && !options.matchCase ? fold(value.item.path) : std::wstring{};
+            auto const& target = usePath ? (options.matchCase ? value.item.path : foldedPath) : (options.matchCase ? value.item.name : value.foldedName);
             bool accepted = true;
             if (options.regex) {
                 auto const& text = options.path ? value.item.path : value.item.name;

@@ -31,11 +31,12 @@ private:
     winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer debounce_{nullptr}, poll_{nullptr};
     Session session_;
     Snapshot result_;
+    std::vector<Item> rendered_;
     uint64_t generation_{};
     uint64_t indexRevision_{}, lastQueryTime_{};
     char const* noticeKey_{};
     uint64_t noticeUntil_{};
-    bool closing_{}, visible_{};
+    bool closing_{}, visible_{}, searching_{};
     bool composing_{}, compositionKey_{};
     HWND hwnd_{};
 };

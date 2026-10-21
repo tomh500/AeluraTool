@@ -43,18 +43,18 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
         auto checked = [this](wchar_t const* name) { return root_.FindName(name).as<CheckBox>().IsChecked().Value(); };
         generation_ = session_.search(std::wstring(query_.Text()), {checked(L"MatchPath"), checked(L"MatchCase"), checked(L"WholeWord"), checked(L"Regex")});
         indexRevision_ = index_->progress().revision; lastQueryTime_ = GetTickCount64();
-        result_ = session_.snapshot(); status();
+        searching_ = true; status();
     });
     poll_ = queue.CreateTimer(); poll_.Interval(std::chrono::milliseconds(60));
     poll_.Tick([this](auto const&, auto const&) {
-        if (result_.state == State::Searching) {
+        if (searching_) {
             auto next = session_.snapshot();
             if (next.generation == generation_ && next.state != State::Searching) {
-                indexRevision_ = next.sourceRevision; result_ = std::move(next); render();
+                searching_ = false; indexRevision_ = next.sourceRevision; result_ = std::move(next); render();
             }
         }
         auto progress = index_->progress();
-        if (!composing_ && !debounce_.IsRunning() && result_.state != State::Searching && progress.revision != indexRevision_ && GetTickCount64() - lastQueryTime_ >= 500 && !query_.Text().empty()) {
+        if (!composing_ && !debounce_.IsRunning() && !searching_ && progress.revision != indexRevision_ && GetTickCount64() - lastQueryTime_ >= 1000 && !query_.Text().empty()) {
             debounce_.Start();
         }
         status();
@@ -99,6 +99,7 @@ SearchWindow::SearchWindow(std::shared_ptr<Index> index, bool floating, HWND own
 }
 SearchWindow::~SearchWindow() { close(); }
 void SearchWindow::show() {
+    if (visible_ && !window_) return;
     visible_ = true;
     if (!window_) { query_.Focus(FocusState::Programmatic); changed(); poll_.Start(); return; }
     POINT cursor{}; GetCursorPos(&cursor); MONITORINFO monitor{sizeof(monitor)};
@@ -135,7 +136,7 @@ void SearchWindow::changed() {
     layout();
     noticeUntil_ = 0;
     debounce_.Stop(); session_.cancel(); generation_ = session_.snapshot().generation;
-    result_ = {}; list_.Items().Clear();
+    searching_ = false; result_ = {}; rendered_.clear(); list_.Items().Clear();
     if (query_.Text().empty()) { status(); return; }
     result_.state = State::Searching; status(); if (!composing_) debounce_.Start();
 }
@@ -147,9 +148,24 @@ void SearchWindow::layout() {
     window_.AppWindow().Resize({static_cast<int>(760 * scale), static_cast<int>((expanded ? 470 : 84) * scale)});
 }
 void SearchWindow::render() {
-    list_.Items().Clear();
-    for (auto const& item : result_.items) list_.Items().Append(box_value(item.name + L"\n" + item.path));
-    if (!result_.items.empty()) list_.SelectedIndex(0);
+    // Keep surviving rows in place during background index updates. Never reset
+    // the ListView or select its first row on every published index batch.
+    std::wstring selected;
+    auto selection = list_.SelectedIndex();
+    if (selection >= 0 && static_cast<size_t>(selection) < rendered_.size()) selected = rendered_[selection].path;
+    preserveResultOrder(rendered_, result_.items);
+    auto rows = list_.Items();
+    while (rows.Size() > result_.items.size()) rows.RemoveAtEnd();
+    for (uint32_t i = 0; i < result_.items.size(); ++i) {
+        auto const& item = result_.items[i];
+        if (i >= rows.Size()) rows.Append(box_value(item.name + L"\n" + item.path));
+        else if (i >= rendered_.size() || item.path != rendered_[i].path || item.name != rendered_[i].name)
+            rows.SetAt(i, box_value(item.name + L"\n" + item.path));
+    }
+    auto at = std::find_if(result_.items.begin(), result_.items.end(), [&](auto const& item) { return item.path == selected; });
+    if (at != result_.items.end()) list_.SelectedIndex(static_cast<int>(at - result_.items.begin()));
+    else if (rendered_.empty() && !result_.items.empty()) list_.SelectedIndex(0);
+    rendered_ = result_.items;
     status();
 }
 void SearchWindow::status() {
@@ -167,8 +183,8 @@ void SearchWindow::status() {
     std::wstring indexText = tr(progress.running ? "filesearch.indexing" : progress.cancelled ? "filesearch.index_cancelled" : progress.failed ? "filesearch.index_failed" : "filesearch.index_ready");
     indexText += std::to_wstring(progress.indexed);
     if (progress.skipped) indexText += std::wstring(tr("filesearch.skipped")) + std::to_wstring(progress.skipped);
-    if (progress.limited) indexText += tr("filesearch.index_limit");
     if (progress.cached) indexText += tr("filesearch.cached");
+    if (progress.cacheFailed) indexText += tr("filesearch.cache_failed");
     root_.FindName(L"IndexState").as<TextBlock>().Text(indexText);
     root_.FindName(L"Refresh").as<Button>().IsEnabled(!progress.running);
     root_.FindName(L"CancelIndex").as<Button>().IsEnabled(progress.running);

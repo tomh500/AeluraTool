@@ -466,7 +466,7 @@
   "filesearch.index_cancelled": "Indexing cancelled. Available entries: ",
   "filesearch.index_failed": "Indexing incomplete. Refresh to retry. Entries available: ",
   "filesearch.skipped": "; unreadable or skipped folders: ",
-  "filesearch.index_limit": ". The 2 million entry limit was reached; coverage is incomplete.",
-  "filesearch.cached": " (using the previously saved index)",
+  "filesearch.cached": " (saved index loaded; refresh after file changes)",
+  "filesearch.cache_failed": ". The index is usable but could not be saved; it will rebuild on next start.",
   "filesearch.wait_index": "Wait for indexing to finish, or select Cancel indexing before exiting."
 }
