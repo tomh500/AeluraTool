@@ -2,7 +2,10 @@
 #include "MainWindow.xaml.h"
 #include "Integration/I18n.h"
 #include "Integration/FileShellActions.h"
+#include "Integration/Privileges.h"
 #include <winrt/Windows.ApplicationModel.h>
+#include <winrt/Microsoft.UI.Xaml.Input.h>
+#include <winrt/Microsoft.UI.Xaml.Media.h>
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 using namespace Microsoft::UI::Xaml::Controls;
@@ -20,6 +23,23 @@ void MainWindow::SetupLifecycle() {
     if (closeAction_ < 0 || closeAction_ > 2) closeAction_ = 0;
     CloseActionChoice().SelectedIndex(closeAction_);
     tray_.Initialize(hwnd_);
+    PrivilegeBanner().IsOpen(!aelura::privileges::elevated());
+    ElevateButton().Click([this](auto const&, auto const&) { Elevate(); });
+    PrivilegeBanner().Tapped([this](auto const&, Input::TappedRoutedEventArgs const& args) {
+        auto source = args.OriginalSource().try_as<DependencyObject>();
+        while (source && source != PrivilegeBanner()) {
+            if (source.try_as<Button>()) return; // The action button handles keyboard activation too.
+            source = Media::VisualTreeHelper::GetParent(source);
+        }
+        Elevate();
+    });
+    AutoElevateSwitch().IsOn(GetPrivateProfileIntW(L"Behavior", L"AutoElevate", 0, config_.c_str()) != 0);
+    AutoElevateSwitch().Toggled([this](auto const&, auto const&) {
+        if (localizing_) return;
+        if (!SaveBehavior(L"AutoElevate", AutoElevateSwitch().IsOn() ? 1 : 0)) {
+            localizing_ = true; AutoElevateSwitch().IsOn(!AutoElevateSwitch().IsOn()); localizing_ = false;
+        }
+    });
     CloseActionChoice().SelectionChanged([this](auto const&, auto const&) {
         if (localizing_) return;
         const int selected = CloseActionChoice().SelectedIndex();
@@ -51,13 +71,18 @@ void MainWindow::LocalizeLifecycle() {
     auto selected = CloseActionChoice().SelectedIndex();
     CloseActionChoice().SelectedIndex(-1); CloseActionChoice().SelectedIndex(selected);
     AutoStartSwitch().Header(box_value(tr("startup.auto")));
-    for (auto toggle : {AutoStartSwitch()}) {
+    AutoElevateSwitch().Header(box_value(tr("privilege.auto")));
+    AutoElevateHint().Text(tr("privilege.auto_hint"));
+    PrivilegeBanner().Title(tr("privilege.title")); PrivilegeBanner().Message(tr("privilege.hint"));
+    ElevateLabel().Text(tr("privilege.action"));
+    for (auto toggle : {AutoStartSwitch(), AutoElevateSwitch()}) {
         toggle.OnContent(box_value(tr("common.enabled"))); toggle.OffContent(box_value(tr("common.disabled")));
     }
     tray_.Localize();
 }
 fire_and_forget MainWindow::RequestClose(bool explicitExit) {
     auto lifetime = get_strong();
+    if (elevationBusy_) co_return;
     if (aelura::files::active()) { RestoreWindow(); Page(5); Notice(tr("filesearch.wait_files"), true); co_return; }
     if (fileSearchIndex_ && fileSearchIndex_->progress().running) { RestoreWindow(); Page(5); Notice(tr("filesearch.wait_index"), true); co_return; }
     if (fileTask_ != FileTask::None) { RestoreWindow(); Notice(tr("files.wait"), true); co_return; }
@@ -87,6 +112,25 @@ fire_and_forget MainWindow::RequestClose(bool explicitExit) {
     }
     if (action == 2) HideToTray(); else Close();
 }
+fire_and_forget MainWindow::Elevate() {
+    if (elevationBusy_ || aelura::privileges::elevated()) co_return;
+    if (fileTask_ != FileTask::None || aelura::files::active() || closeDialogOpen_ || startupBusy_) { Notice(tr("privilege.wait"), true); co_return; }
+    auto lifetime = get_strong(); elevationBusy_ = true;
+    Root().IsHitTestVisible(false); if (fileSearch_) fileSearch_->hide();
+    auto launch = aelura::privileges::restart(hwnd_);
+    bool ready = false;
+    if (launch.process) {
+        auto deadline = GetTickCount64() + 20000;
+        while (GetTickCount64() < deadline && WaitForSingleObject(launch.process, 0) == WAIT_TIMEOUT) {
+            if (WaitForSingleObject(launch.ready, 0) == WAIT_OBJECT_0) { ready = true; break; }
+            co_await winrt::resume_after(std::chrono::milliseconds(50));
+        }
+        CloseHandle(launch.process); CloseHandle(launch.ready);
+    }
+    if (ready) { if (fileSearchIndex_) fileSearchIndex_->cancel(); Close(); co_return; }
+    Root().IsHitTestVisible(true); elevationBusy_ = false;
+    if (launch.error != ERROR_CANCELLED) Notice(tr("privilege.failed"), true);
+}
 fire_and_forget MainWindow::StartupSetting(std::optional<bool> enable) {
     if (startupBusy_) co_return;
     auto lifetime = get_strong(); startupBusy_ = true; AutoStartSwitch().IsEnabled(false);
@@ -94,16 +138,30 @@ fire_and_forget MainWindow::StartupSetting(std::optional<bool> enable) {
     try {
         auto task = co_await StartupTask::GetAsync(L"AeluraStartup");
         auto state = task.State();
-        if (enable) {
-            if (*enable && state == StartupTaskState::Disabled) state = co_await task.RequestEnableAsync();
-            else if (!*enable && state == StartupTaskState::Enabled) { task.Disable(); state = task.State(); }
+        const bool scheduled = aelura::privileges::startupEnabled();
+        bool configured = true;
+        if (enable && (*enable != scheduled)) {
+            if (aelura::privileges::elevated()) configured = aelura::privileges::setStartup(*enable);
+            else {
+                auto launch = aelura::privileges::configureStartup(hwnd_, *enable);
+                configured = false;
+                if (launch.process) {
+                    while (WaitForSingleObject(launch.process, 0) == WAIT_TIMEOUT) co_await winrt::resume_after(std::chrono::milliseconds(100));
+                    DWORD code{}; configured = GetExitCodeProcess(launch.process, &code) && code == 0; CloseHandle(launch.process);
+                }
+            }
         }
-        const bool active = state == StartupTaskState::Enabled || state == StartupTaskState::EnabledByPolicy;
+        if (configured && enable) {
+            // Retire the legacy packaged startup entry only after the scheduled task succeeds.
+            if (state == StartupTaskState::Enabled) { task.Disable(); state = task.State(); }
+        }
+        const bool scheduledNow = aelura::privileges::startupEnabled();
+        const bool active = scheduledNow || state == StartupTaskState::Enabled || state == StartupTaskState::EnabledByPolicy;
         localizing_ = true; AutoStartSwitch().IsOn(active); localizing_ = false;
-        AutoStartState().Text(state == StartupTaskState::DisabledByUser ? tr("startup.blocked_user") :
+        AutoStartState().Text(scheduledNow ? tr("startup.admin_hint") : state == StartupTaskState::DisabledByUser ? tr("startup.blocked_user") :
             state == StartupTaskState::DisabledByPolicy || state == StartupTaskState::EnabledByPolicy ? tr("startup.policy") : tr("startup.hint"));
-        AutoStartSwitch().IsEnabled(state != StartupTaskState::DisabledByPolicy && state != StartupTaskState::EnabledByPolicy);
-        if (enable && active != *enable) Notice(tr("startup.not_changed"), true);
+        AutoStartSwitch().IsEnabled(scheduledNow || (state != StartupTaskState::DisabledByPolicy && state != StartupTaskState::EnabledByPolicy));
+        if (enable && (!configured || active != *enable)) Notice(tr("startup.not_changed"), true);
     } catch (hresult_error const&) {
         localizing_ = true; AutoStartSwitch().IsOn(false); localizing_ = false;
         AutoStartState().Text(tr("startup.failed")); AutoStartSwitch().IsEnabled(false);

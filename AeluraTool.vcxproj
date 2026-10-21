@@ -131,6 +131,7 @@
     <ClInclude Include="Integration\FileHash.h" />
     <ClInclude Include="Integration\FileSearch.h" />
     <ClInclude Include="Integration\NtfsFileIndex.h" />
+    <ClInclude Include="Integration\Privileges.h" />
     <ClInclude Include="Integration\EverythingSearch.h" />
     <ClInclude Include="Integration\FileShellActions.h" />
     <ClInclude Include="Integration\FileSearchWindow.h" />
@@ -152,6 +153,7 @@
     <ClCompile Include="MainWindow.Hash.cpp" />
     <ClCompile Include="Integration\FileSearchWindow.cpp" />
     <ClCompile Include="Integration\FileSearch.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Integration\Privileges.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\EverythingSearch.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\FileShellActions.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Tools\EverythingSDK\src\Everything.c"><PrecompiledHeader>NotUsing</PrecompiledHeader><CompileAs>CompileAsC</CompileAs><WarningLevel>Level1</WarningLevel></ClCompile>

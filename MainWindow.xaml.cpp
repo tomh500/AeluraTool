@@ -97,8 +97,9 @@ using aelura::i18n::tr;
         wchar_t executablePath[32768]{}; GetModuleFileNameW(nullptr, executablePath, 32768);
         AppWindow().SetIcon((std::filesystem::path(executablePath).parent_path() / L"Assets" / L"App.ico").wstring());
         singleton_ = CreateMutexW(nullptr, FALSE, L"Local\\AeluraTool.Singleton");
-        if (!singleton_) throw_last_error();
-        if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        const auto singletonError = GetLastError();
+        if (!singleton_ && singletonError != ERROR_ACCESS_DENIED) throw_last_error();
+        if (singletonError == ERROR_ALREADY_EXISTS || singletonError == ERROR_ACCESS_DENIED) {
             if (!startupActivation_) EnumWindows([](HWND window, LPARAM)->BOOL {
                 if (GetPropW(window, L"AeluraTool.MainWindow")) { ShowWindow(window, SW_RESTORE); SetForegroundWindow(window); return FALSE; } return TRUE;
                 }, 0);
@@ -154,6 +155,7 @@ using aelura::i18n::tr;
         Root().Loaded([this](auto const&, auto const&) { PlayStartup(); });
         Root().AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
         Root().AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
+        Root().PreviewKeyDown([this](auto const&, Input::KeyRoutedEventArgs const& args) { if (elevationBusy_) args.Handled(true); });
         HashBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         MoveBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         FileSearchBackButton().Click([this](auto const&, auto const&) { GoBack(); });
@@ -220,6 +222,7 @@ using aelura::i18n::tr;
             }, reinterpret_cast<LPARAM>(&state)); return state.hwnd;
     }
     void MainWindow::Invoke(UINT command) {
+        if (elevationBusy_) return;
         if (pending_) { Notice(tr("capture.starting")); return; }
         if (!process_ || WaitForSingleObject(process_, 0) != WAIT_TIMEOUT) {
             if (process_) { CloseHandle(process_); process_ = nullptr; }
@@ -268,6 +271,7 @@ using aelura::i18n::tr;
         if (msg == WM_GETMINMAXINFO) { auto info = reinterpret_cast<MINMAXINFO*>(lp); info->ptMinTrackSize = {1000, 680}; return 0; }
         if (msg == WM_CLOSE) { self->RequestClose(); return 0; }
         if (msg == WM_HOTKEY) {
+            if (self->elevationBusy_) return 0;
             self->FinishStartup();
             for (auto const& b : self->hotkeys_.bindings) if (b.registered && wp == static_cast<WPARAM>(b.slot)) {
                 if (b.id == L"filesearch") self->ShowFileSearch(); else if (b.id == L"print") self->Invoke(1); else if (b.id == L"preview") self->Invoke(3); else self->ActivateTool(b.id);

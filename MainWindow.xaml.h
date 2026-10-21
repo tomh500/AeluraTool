@@ -39,6 +39,7 @@ namespace winrt::AeluraTool::implementation {
         aelura::desktop::TrayIcon tray_;
         int closeAction_{};
         bool closeDialogOpen_{}, startupBusy_{}, startupActivation_{};
+        bool elevationBusy_{};
         bool moveBusy_{};
         enum class FileTask { None, Migration, Hash };
         FileTask fileTask_{FileTask::None};
@@ -62,6 +63,7 @@ namespace winrt::AeluraTool::implementation {
         void OpenSearchResult(winrt::hstring const& label);
         void SetupLifecycle();
         void LocalizeLifecycle();
+        winrt::fire_and_forget Elevate();
         void RestoreWindow();
         bool HideToTray();
         bool SaveBehavior(wchar_t const* key, int value);

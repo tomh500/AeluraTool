@@ -63,6 +63,17 @@ struct Server {
 };
 }
 void run_everything_tests(fs::path const& root) {
+    // Debug and Release runs share the synthetic SDK window class. Keep their
+    // missing-server and timeout fixtures from answering each other's queries.
+    struct Isolation {
+        HANDLE mutex{CreateMutexW(nullptr, FALSE, L"Local\\AeluraTool.SdkTestIsolation")};
+        Isolation() {
+            check(mutex != nullptr, "SDK isolation mutex creation failed");
+            auto result = WaitForSingleObject(mutex, 60000);
+            if (result != WAIT_OBJECT_0 && result != WAIT_ABANDONED) { CloseHandle(mutex); mutex = nullptr; throw std::runtime_error("SDK isolation mutex timeout"); }
+        }
+        ~Isolation() { if (mutex) { ReleaseMutex(mutex); CloseHandle(mutex); } }
+    } isolation;
     using namespace aelura::filesearch;
     fs::create_directories(root / L"files");
     check(queryEverything(L"test", {}, {}).state == State::EngineUnavailable, "missing SDK client not reported");
