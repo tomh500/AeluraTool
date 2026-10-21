@@ -3,12 +3,19 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include "../Integration/Privileges.h"
 
 namespace fs = std::filesystem;
 void run_hash_tests(fs::path const& root);
 void run_migration_tests(fs::path const& root);
+void run_filesearch_tests(fs::path const& root);
+void run_everything_tests(fs::path const& root);
+void run_file_shell_tests(fs::path const& root);
+void run_privileges_tests(fs::path const& root);
 
 int main(int argc, char** argv) {
+    bool startup{};
+    if (!aelura::privileges::prepareLaunch(startup)) return ERROR_ACCESS_DENIED;
     const std::string suite = argc == 3 && std::string(argv[1]) == "--suite" ? argv[2] : "all";
     if ((argc != 1 && argc != 3) || (argc == 3 && std::string(argv[1]) != "--suite") ||
         (suite != "all" && suite != "hash" && suite != "migration")) {
@@ -28,6 +35,10 @@ int main(int argc, char** argv) {
         if (root.empty()) throw std::runtime_error("Cannot reserve a test sandbox");
         if (suite == "all" || suite == "hash") run_hash_tests(root / "hash");
         if (suite == "all" || suite == "migration") run_migration_tests(root / "migration");
+        if (suite == "all") run_filesearch_tests(root / "filesearch");
+        if (suite == "all") run_everything_tests(root / "everything");
+        if (suite == "all") run_file_shell_tests(root / "shell");
+        if (suite == "all") run_privileges_tests(root / "privileges");
         fs::remove_all(root);
         std::cout << "PASS: selected suites completed\n";
         return 0;

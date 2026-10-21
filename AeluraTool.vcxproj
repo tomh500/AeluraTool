@@ -129,6 +129,12 @@
     <ClInclude Include="Integration\HotkeyManager.h" />
     <ClInclude Include="Integration\FileMigration.h" />
     <ClInclude Include="Integration\FileHash.h" />
+    <ClInclude Include="Integration\FileSearch.h" />
+    <ClInclude Include="Integration\NtfsFileIndex.h" />
+    <ClInclude Include="Integration\Privileges.h" />
+    <ClInclude Include="Integration\EverythingSearch.h" />
+    <ClInclude Include="Integration\FileShellActions.h" />
+    <ClInclude Include="Integration\FileSearchWindow.h" />
     <ClInclude Include="Integration\I18n.h" />
     <ClInclude Include="Integration\RecordingPanel.h" />
     <ClInclude Include="Integration\RecordingSelector.h" />
@@ -155,6 +161,12 @@
   <ItemGroup>
     <ClCompile Include="MainWindow.Tools.cpp" />
     <ClCompile Include="MainWindow.Hash.cpp" />
+    <ClCompile Include="Integration\FileSearchWindow.cpp" />
+    <ClCompile Include="Integration\FileSearch.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Integration\Privileges.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Integration\EverythingSearch.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Integration\FileShellActions.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\EverythingSDK\src\Everything.c"><PrecompiledHeader>NotUsing</PrecompiledHeader><CompileAs>CompileAsC</CompileAs><WarningLevel>Level1</WarningLevel></ClCompile>
     <ClCompile Include="MainWindow.Localization.cpp" />
     <ClCompile Include="MainWindow.Startup.cpp" />
     <ClCompile Include="MainWindow.Lifecycle.cpp" />

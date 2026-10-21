@@ -2,6 +2,8 @@
 #include "App.xaml.h"
 #include "MainWindow.xaml.h"
 #include "Integration/Diagnostics.h"
+#include "Integration/Privileges.h"
+#include <shlobj.h>
 #include <winrt/Windows.ApplicationModel.h>
 
 using namespace winrt;
@@ -43,10 +45,16 @@ namespace winrt::AeluraTool::implementation
     void App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
     {
         bool startupActivation = false;
+        if (!aelura::privileges::prepareLaunch(startupActivation)) { Exit(); return; }
         try {
             auto activation = Windows::ApplicationModel::AppInstance::GetActivatedEventArgs();
-            startupActivation = activation && activation.Kind() == Windows::ApplicationModel::Activation::ActivationKind::StartupTask;
+            startupActivation = startupActivation || (activation && activation.Kind() == Windows::ApplicationModel::Activation::ActivationKind::StartupTask);
         } catch (hresult_error const&) { /* Keep a manual launch accessible if activation metadata is unavailable. */ }
+        PWSTR local{};
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local))) {
+            auto config = std::filesystem::path(local) / L"AeluraTool" / L"hotkeys.ini"; CoTaskMemFree(local);
+            if (aelura::privileges::requestAutomatic(nullptr, config, startupActivation)) { Exit(); return; }
+        }
         auto main = make<MainWindow>();
         window = main;
         get_self<MainWindow>(main)->Setup(startupActivation);

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <iomanip>
 #include <optional>
+#include <fstream>
 using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 using namespace Microsoft::UI::Xaml::Controls;
@@ -75,11 +76,38 @@ fire_and_forget MainWindow::EditKey(size_t index) {
     });
     try { co_await dialog.ShowAsync(); RenderKeys(); } catch (hresult_error const& e) { Notice(e.message(), true); }
 }
+void MainWindow::EnsureFileSearchIndex() {
+    if (fileSearchIndex_) return;
+#ifdef _DEBUG
+    // UI smoke tests may restrict scanning to their freshly created temporary fixture.
+    // Release builds never read this marker or override the local-drive scope.
+    wchar_t executable[32768]{}; GetModuleFileNameW(nullptr, executable, 32768);
+    std::ifstream input(std::filesystem::path(executable).parent_path() / L"file-search-test-root.txt");
+    std::string value; std::getline(input, value);
+    if (!value.empty()) {
+        std::error_code error;
+        auto root = std::filesystem::weakly_canonical(std::filesystem::path(to_hstring(value).c_str()), error);
+        auto temporary = std::filesystem::weakly_canonical(std::filesystem::temp_directory_path(), error);
+        if (!error && root.parent_path() == temporary && root.filename().wstring().rfind(L"AeluraSearchUi-", 0) == 0 &&
+            std::filesystem::is_regular_file(root / L".aelura-filesearch-fixture", error) &&
+            !(GetFileAttributesW(root.c_str()) & FILE_ATTRIBUTE_REPARSE_POINT)) {
+            fileSearchIndex_ = std::make_shared<aelura::filesearch::Index>(root / L"cache" / L"index.bin", std::vector<std::filesystem::path>{root / L"files"});
+        }
+    }
+#endif
+    if (!fileSearchIndex_) fileSearchIndex_ = std::make_shared<aelura::filesearch::Index>(config_.parent_path() / L"file-search-index.bin");
+}
+void MainWindow::ShowFileSearch() {
+    EnsureFileSearchIndex();
+    if (!fileSearch_) fileSearch_ = std::make_unique<aelura::filesearch::SearchWindow>(fileSearchIndex_);
+    fileSearch_->appearance(Root().RequestedTheme()); fileSearch_->show();
+}
 void MainWindow::ActivateTool(std::wstring const& id) {
-    if (id == L"capture") Invoke(1);
+    if (id == L"filesearch") { RestoreWindow(); Page(5); }
+    else if (id == L"capture") Invoke(1);
     else if (id == L"move") { ShowWindow(hwnd_, SW_RESTORE); SetForegroundWindow(hwnd_); Page(3); }
     else if (id == L"hash") { ShowWindow(hwnd_, SW_RESTORE); SetForegroundWindow(hwnd_); Page(4); }
-    else if (id == L"record") { RestoreWindow(); Page(5); }
+    else if (id == L"record") { RestoreWindow(); Page(6); }
     else if (id == L"strike") LaunchStrike();
 }
 void MainWindow::LaunchStrike() {

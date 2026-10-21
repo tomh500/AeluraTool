@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "MainWindow.g.h"
 #include <filesystem>
 #include <atomic>
@@ -8,6 +8,8 @@
 #include "Integration/HotkeyManager.h"
 #include "Integration/FileHash.h"
 #include "Integration/RecordingPanel.h"
+#include "Integration/FileSearchWindow.h"
+#include <memory>
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
 namespace winrt::AeluraTool::implementation {
     struct MainWindow : MainWindowT<MainWindow> {
@@ -21,6 +23,11 @@ namespace winrt::AeluraTool::implementation {
         HANDLE process_{}, job_{}, singleton_{};
         DWORD pid_{};
         aelura::hotkeys::Manager hotkeys_;
+        std::unique_ptr<aelura::filesearch::SearchWindow> fileSearch_;
+        std::unique_ptr<aelura::filesearch::SearchWindow> fileSearchPage_;
+        std::shared_ptr<aelura::filesearch::Index> fileSearchIndex_;
+        void ShowFileSearch();
+        void EnsureFileSearchIndex();
         HANDLE strike_{};
         int category_{1}, page_{};
         struct SearchTarget { std::wstring label, id; int page, category; };
@@ -33,6 +40,7 @@ namespace winrt::AeluraTool::implementation {
         aelura::desktop::TrayIcon tray_;
         int closeAction_{};
         bool closeDialogOpen_{}, startupBusy_{}, startupActivation_{}, recordingCloseBusy_{};
+        bool elevationBusy_{};
         bool moveBusy_{};
         enum class FileTask { None, Migration, Hash };
         FileTask fileTask_{FileTask::None};
@@ -57,6 +65,7 @@ namespace winrt::AeluraTool::implementation {
         void OpenSearchResult(winrt::hstring const& label);
         void SetupLifecycle();
         void LocalizeLifecycle();
+        winrt::fire_and_forget Elevate();
         void RestoreWindow();
         bool HideToTray();
         bool SaveBehavior(wchar_t const* key, int value);

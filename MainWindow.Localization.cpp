@@ -9,11 +9,13 @@ using namespace Microsoft::UI::Xaml;
 namespace winrt::AeluraTool::implementation {
 using aelura::i18n::tr;
 void MainWindow::ApplyLanguage() {
+    if (fileSearch_) fileSearch_->localize();
+    if (fileSearchPage_) fileSearchPage_->localize();
     localizing_ = true;
     auto themeIndex = ThemeChoice().SelectedIndex(); auto languageIndex = LanguageChoice().SelectedIndex();
     Title(tr("app.title"));
-    HashBackLabel().Text(tr("nav.back")); MoveBackLabel().Text(tr("nav.back"));
-    for (auto button : {HashBackButton(), MoveBackButton()}) {
+    HashBackLabel().Text(tr("nav.back")); MoveBackLabel().Text(tr("nav.back")); FileSearchBackLabel().Text(tr("nav.back"));
+    for (auto button : {HashBackButton(), MoveBackButton(), FileSearchBackButton()}) {
         Automation::AutomationProperties::SetName(button, tr("nav.back"));
         Controls::ToolTipService::SetToolTip(button, box_value(tr("nav.back_hint")));
     }

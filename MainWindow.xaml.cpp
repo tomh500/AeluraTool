@@ -7,6 +7,7 @@
 #include <shlobj.h>
 #include <string>
 #include <utility>
+#include <algorithm>
 #include "Integration/CaptureProtocol.h"
 #include "Integration/ToolCatalog.h"
 #include "Integration/FileMigration.h"
@@ -33,7 +34,7 @@ using aelura::i18n::tr;
         Status().IsOpen(true); Status().Message(message); Status().Severity(error ? InfoBarSeverity::Error : InfoBarSeverity::Success);
     }
     void MainWindow::GoBack() {
-        if (page_ != 3 && page_ != 4 && page_ != 5) return;
+        if (page_ != 3 && page_ != 4 && page_ != 5 && page_ != 6) return;
         navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
         auto previous = toolReturn_.value_or(NavigationEntry{0, 2, L""}); toolReturn_.reset();
         restoringNavigation_ = true;
@@ -58,7 +59,7 @@ using aelura::i18n::tr;
         const int nextCategory = category < 0 ? category_ : category;
         if (remember && (index != page_ || nextCategory != category_))
             navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
-        if (remember && (index == 3 || index == 4 || index == 5) && page_ != 3 && page_ != 4 && page_ != 5)
+        if (remember && (index == 3 || index == 4 || index == 5 || index == 6) && page_ != 3 && page_ != 4 && page_ != 5 && page_ != 6)
             toolReturn_ = NavigationEntry{page_, category_, Search().Text()};
         category_ = nextCategory;
         page_ = index;
@@ -68,15 +69,24 @@ using aelura::i18n::tr;
         PreferencesPage().Visibility(index == 2 ? Visibility::Visible : Visibility::Collapsed);
         MovePage().Visibility(index == 3 ? Visibility::Visible : Visibility::Collapsed);
         HashPage().Visibility(index == 4 ? Visibility::Visible : Visibility::Collapsed);
-        RecordingPage().Visibility(index == 5 ? Visibility::Visible : Visibility::Collapsed);
+        RecordingPage().Visibility(index == 6 ? Visibility::Visible : Visibility::Collapsed);
+        FileSearchPage().Visibility(index == 5 ? Visibility::Visible : Visibility::Collapsed);
+        if (index == 5) {
+            if (!fileSearchPage_) {
+                EnsureFileSearchIndex();
+                fileSearchPage_ = std::make_unique<aelura::filesearch::SearchWindow>(fileSearchIndex_, false, hwnd_);
+                FileSearchHost().Child(fileSearchPage_->content());
+            }
+            fileSearchPage_->show();
+        } else if (fileSearchPage_) fileSearchPage_->hide();
         const wchar_t* categories[] = {tr("nav.all"), tr("nav.images"), tr("nav.files"), tr("nav.games")};
-        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 5 ? tr("record.title") : index == 4 ? tr("hash.title") : tr("move.title"));
-        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 5 ? tr("record.description") : index == 4 ? tr("hash.description") : tr("move.description"));
+        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 6 ? tr("record.title") : index == 5 ? tr("filesearch.title") : index == 4 ? tr("hash.title") : tr("move.title"));
+        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 6 ? tr("record.description") : index == 5 ? tr("filesearch.description") : index == 4 ? tr("hash.description") : tr("move.description"));
         ResultCount().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         auto standard = Application::Current().Resources().Lookup(box_value(L"DefaultButtonStyle")).as<Style>();
         auto selected = Root().Resources().Lookup(box_value(L"NavigationSelected")).as<Style>();
-        ImageNav().Style((index == 0 && category_ == 1) || index == 5 ? selected : standard);
-        FilesNav().Style((index == 0 && category_ == 2) || index == 3 || index == 4 ? selected : standard);
+        ImageNav().Style(((index == 0 && category_ == 1) || index == 6) ? selected : standard);
+        FilesNav().Style((index == 0 && category_ == 2) || index == 3 || index == 4 || index == 5 ? selected : standard);
         GamesNav().Style(index == 0 && category_ == 3 ? selected : standard);
         KeysNav().Style(index == 1 ? selected : standard); PreferencesNav().Style(index == 2 ? selected : standard);
         if (index == 0) RenderTools(); if (index == 1) RenderKeys(); if (index == 4) RenderHash();
@@ -88,8 +98,9 @@ using aelura::i18n::tr;
         wchar_t executablePath[32768]{}; GetModuleFileNameW(nullptr, executablePath, 32768);
         AppWindow().SetIcon((std::filesystem::path(executablePath).parent_path() / L"Assets" / L"App.ico").wstring());
         singleton_ = CreateMutexW(nullptr, FALSE, L"Local\\AeluraTool.Singleton");
-        if (!singleton_) throw_last_error();
-        if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        const auto singletonError = GetLastError();
+        if (!singleton_ && singletonError != ERROR_ACCESS_DENIED) throw_last_error();
+        if (singletonError == ERROR_ALREADY_EXISTS || singletonError == ERROR_ACCESS_DENIED) {
             if (!startupActivation_) EnumWindows([](HWND window, LPARAM)->BOOL {
                 if (GetPropW(window, L"AeluraTool.MainWindow")) { ShowWindow(window, SW_RESTORE); SetForegroundWindow(window); return FALSE; } return TRUE;
                 }, 0);
@@ -115,6 +126,7 @@ using aelura::i18n::tr;
             DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         };
         Root().ActualThemeChanged([this,titleTheme](auto const&, auto const&) { titleTheme(); if(recording_)recording_->theme(Root().RequestedTheme()); }); titleTheme();
+        Root().SizeChanged([this](auto const&, auto const&) { FileSearchHost().Height((std::max)(500.0, Root().ActualHeight() - 320.0)); });
         ThemeChoice().SelectionChanged([this](auto const&, auto const&) {
             if (localizing_) return;
             int selected = ThemeChoice().SelectedIndex();
@@ -123,6 +135,7 @@ using aelura::i18n::tr;
                 Notice(tr("error.theme_save"), true); return;
             }
             Root().RequestedTheme(static_cast<ElementTheme>(selected));if(recording_)recording_->theme(Root().RequestedTheme());
+            if (fileSearch_) fileSearch_->appearance(Root().RequestedTheme());
         });
         LanguageChoice().SelectionChanged([this](auto const&, auto const&) {
             if (localizing_) return;
@@ -143,8 +156,10 @@ using aelura::i18n::tr;
         Root().Loaded([this](auto const&, auto const&) { PlayStartup(); });
         Root().AddHandler(UIElement::PointerPressedEvent(), box_value(Input::PointerEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
         Root().AddHandler(UIElement::KeyDownEvent(), box_value(Input::KeyEventHandler([this](auto const&, auto const&) { FinishStartup(); })), true);
+        Root().PreviewKeyDown([this](auto const&, Input::KeyRoutedEventArgs const& args) { if (elevationBusy_) args.Handled(true); });
         HashBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         MoveBackButton().Click([this](auto const&, auto const&) { GoBack(); });
+        FileSearchBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         HistoryBackButton().Click([this](auto const&, auto const&) { GoHistoryBack(); });
         Input::KeyboardAccelerator backKey;
         backKey.Key(Windows::System::VirtualKey::Left);
@@ -171,7 +186,7 @@ using aelura::i18n::tr;
         });
         moveTimer_ = DispatcherQueue().CreateTimer(); moveTimer_.Interval(std::chrono::milliseconds(120));
         moveTimer_.Tick([this](auto const&, auto const&) { auto total = moveTotal_.load(); MoveProgress().Value(total ? 100.0 * moveDone_.load() / total : 0); });
-        recording_ = std::make_unique<aelura::recording::Panel>(hwnd_,config_.parent_path()/L"recording.json",[this]{RestoreWindow();Page(5);if(recording_&&!recording_->busy())Status().IsOpen(false);},[this]{auto host=EngineWindow();if(!host&&!pending_)Invoke(capture::Prepare);return host;});
+        recording_ = std::make_unique<aelura::recording::Panel>(hwnd_,config_.parent_path()/L"recording.json",[this]{RestoreWindow();Page(6);if(recording_&&!recording_->busy())Status().IsOpen(false);},[this]{auto host=EngineWindow();if(!host&&!pending_)Invoke(capture::Prepare);return host;});
         RecordingHost().Content(recording_->content());recording_->theme(Root().RequestedTheme());
         RecordingBackButton().Click([this](auto const&,auto const&){GoBack();});
         SetupHash(); SetupLifecycle(); ApplyLanguage(); ready_ = true;
@@ -211,6 +226,7 @@ using aelura::i18n::tr;
             }, reinterpret_cast<LPARAM>(&state)); return state.hwnd;
     }
     void MainWindow::Invoke(UINT command) {
+        if (elevationBusy_) return;
         if (pending_) { Notice(tr("capture.starting")); return; }
         if (!process_ || WaitForSingleObject(process_, 0) != WAIT_TIMEOUT) {
             if (process_) { CloseHandle(process_); process_ = nullptr; }
@@ -259,15 +275,17 @@ using aelura::i18n::tr;
         if (msg == WM_GETMINMAXINFO) { auto info = reinterpret_cast<MINMAXINFO*>(lp); info->ptMinTrackSize = {1000, 680}; return 0; }
         if (msg == WM_CLOSE) { self->RequestClose(); return 0; }
         if (msg == WM_HOTKEY) {
-            if(self->recordingCloseBusy_)return 0;
+            if(self->recordingCloseBusy_ || self->elevationBusy_)return 0;
             self->FinishStartup();
             for (auto const& b : self->hotkeys_.bindings) if (b.registered && wp == static_cast<WPARAM>(b.slot)) {
                 if(b.id==L"record")self->recording_->toggle();else if(b.id==L"replay-save")self->recording_->replaySave();
-                else if (b.id == L"print") self->Invoke(1); else if (b.id == L"preview") self->Invoke(3); else self->ActivateTool(b.id);
+                else if (b.id == L"filesearch") self->ShowFileSearch(); else if (b.id == L"print") self->Invoke(1); else if (b.id == L"preview") self->Invoke(3); else self->ActivateTool(b.id);
                 return 0;
             }
         }
         if (msg == WM_DESTROY) {
+            if (self->fileSearch_) self->fileSearch_->close();
+            if (self->fileSearchPage_) self->fileSearchPage_->close();
             self->tray_.Remove();
             if (self->hashTimer_) self->hashTimer_.Stop();
             if (self->timer_) self->timer_.Stop();

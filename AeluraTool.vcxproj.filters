@@ -13,11 +13,15 @@
     <ClCompile Include="pch.cpp" />
     <ClCompile Include="MainWindow.Hash.cpp" />
     <ClCompile Include="Integration\FileHash.cpp" />
+    <ClCompile Include="Integration\FileSearch.cpp" />
+    <ClCompile Include="Integration\FileSearchWindow.cpp" />
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Integration\FileHash.h" />
+    <ClInclude Include="Integration\FileSearch.h" />
+    <ClInclude Include="Integration\FileSearchWindow.h" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="Assets\Wide310x150Logo.scale-200.png">
