@@ -654,8 +654,10 @@
   "autoclicker.state_on_hint": "Hold the trigger to click. Disable to edit settings.",
   "autoclicker.state_off_hint": "Adjust settings, then enable the switch or use the toggle shortcut.",
   "autoclicker.saved": "Click settings saved.",
-  "settings.hotkey_notifications": "Shortcut toggle notifications",
-  "settings.hotkey_notifications_hint": "Show a brief desktop status notification when a shortcut enables or disables AutoClicker.",
+  "settings.hotkey_notifications": "Shortcut notifications",
+  "settings.hotkey_notifications_hint": "Show a brief notification for every enabled shortcut. AutoClicker toggles show its actual enabled or disabled state.",
   "toggle.enabled": "Enabled",
-  "toggle.disabled": "Disabled"
+  "toggle.disabled": "Disabled",
+  "keys.manage": "Manage shortcuts",
+  "keys.triggered": "Shortcut triggered"
 }

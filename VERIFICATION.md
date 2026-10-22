@@ -1,5 +1,16 @@
 # 验证记录
 
+## 1.6.3.0 包身份提权与统一快捷键提示（2026-10-22）
+
+- 核查确认旧 Privileges::launch 使用 runas 直接执行 EXE，与此前无包身份初始化失败的路径相同；此前仅修正桌面入口没有覆盖提权入口。现在读取 GetCurrentApplicationUserModelId，打包进程通过 shell:AppsFolder/AUMID 请求 runas；无包身份的核心测试宿主保留 EXE 回退。此实现参考了微软 Terminal elevate-shim 的包激活方式，未复制其源码。
+- Shell 成功启动包应用不保证返回 hProcess。Launch 独立记录 started，管理员重启在没有进程句柄时仍等待原有 ready 事件，启动失败/UAC 取消保留旧实例；失败增加实际错误码及激活目标日志。自启动配置辅助进程也通过完成事件报告成功，不再依赖进程退出码；打包进程新建的计划任务改为经系统 PowerShell 请求 runas 包激活入口，避免直接运行 EXE。没有注册或修改本机真实自启动任务，已有旧任务需要通过设置重新保存才能更新。
+- 实际从 Shell runas 包入口请求 --startup，用户完成系统授权后产生 PID 66500。只读 OpenProcessToken/GetTokenInformation 验证 TokenIsElevated=true；GetPackageFullName 返回 27abd2dc-3cdf-47a6-a74b-7cae8037deaa_1.6.3.0_x64__7t0k2emg7qmbr，实际路径为 Release/AppX-1.6.3.0/AeluraTool.exe。进程权限与包身份同时成立，管理员实例实际启动成功；没有结束该实例。
+- 上述请求使用 PowerShell Start-Process -PassThru，命令因没有可返回进程对象报告“system cannot find all the information required”，但随后进程令牌核验确认启动成功。这实际重现了“激活成功、无进程句柄”的情形，不能把此命令错误记为 UAC 拒绝。证据位于 artifacts/elevation-shell-live.json 与 artifacts/elevation-shell-process.json。
+- Clicker 工具页的快捷键按钮改为跳转统一快捷键页并筛选 AutoClicker，绑定修改/启停/占用检查均由原有 HotkeyManager 与统一页面托管。所有已注册快捷键都接入同一个提示设置：AutoClicker 显示实际启停，截图/PrintScreen、预览、搜索、迁移、哈希、录屏、重放保存与 StrikeSense 显示操作已触发；不声称操作完成。提示自身失败只记日志，不中断快捷键操作。
+- 最终 Debug/Release 构建与两配置完整 scripts/test.ps1 通过，新增纯函数检查包提权目标与无身份回退，已有快捷键注册/保存失败回滚及截图通信继续通过。661 对资源和 614 处静态引用检查通过；符号链接夹具仍因错误 1314 跳过。最终 Release 1.6.3.0 已部署并更新桌面快捷方式，签名分发 ZIP 为 AeluraTool-1.6.3.0-x64-20261022-221009.zip。
+- 未在本轮点横幅验证“旧普通进程退出—新管理员主窗口显示”的完整交接，也未实测 UAC 取消、不同管理员账户授权、计划任务开机启动、所有快捷键提示的可见外观或干净机器安装。真实令牌验证只证明包入口管理员进程已经成功启动，不能替代这些检查。继续遵守此前停止 Computer Use 的要求，仅通过后台 API 排查与启动请求。
+- 日志：artifacts/elevation-shell-build-debug.log、elevation-shell-final-debug.log、elevation-shell-build-release.log、elevation-shell-distribution.log、elevation-shell-tests-debug.log、elevation-shell-tests-release.log。保留 BUILD_AND_DISTRIBUTE.md 用户修改。
+
 ## 1.6.2.0 Clicker 子界面、启停提示与启动排查（2026-10-22）
 
 - AutoClicker 改为游戏分类内的独立子界面，接入返回与历史导航、统一搜索；启停开关与参数编辑分开，运行时锁定参数。快捷键通过 HotkeyManager 直接切换启停，默认 Ctrl+Alt+C，尊重已保存配置并显示注册状态；工具页提供统一快捷键编辑入口。新增持久化“快捷键启停提示”设置，保存失败恢复旧值。

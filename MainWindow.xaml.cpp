@@ -282,6 +282,7 @@ using aelura::i18n::tr;
             for (auto const& b : self->hotkeys_.bindings) if (b.registered && wp == static_cast<WPARAM>(b.slot)) {
                 if(b.id==L"autoclicker")self->ToggleAutoClicker(true);else if(b.id==L"record")self->recording_->toggle();else if(b.id==L"replay-save")self->recording_->replaySave();
                 else if (b.id == L"filesearch") self->ShowFileSearch(); else if (b.id == L"print") self->Invoke(1); else if (b.id == L"preview") self->Invoke(3); else self->ActivateTool(b.id);
+                if(b.id!=L"autoclicker" && self->hotkeyNotifications_ && self->toggleNotification_)self->toggleNotification_->action(b.title,self->Root().RequestedTheme());
                 return 0;
             }
         }

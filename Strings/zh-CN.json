@@ -654,8 +654,10 @@
   "autoclicker.state_on_hint": "长按触发键开始点击。停用后可修改参数。",
   "autoclicker.state_off_hint": "调整参数后打开开关，或使用启停快捷键。",
   "autoclicker.saved": "点击参数已保存。",
-  "settings.hotkey_notifications": "快捷键启停提示",
-  "settings.hotkey_notifications_hint": "通过快捷键启停 AutoClicker 时，在桌面显示短暂的状态提示。",
+  "settings.hotkey_notifications": "快捷键操作提示",
+  "settings.hotkey_notifications_hint": "执行任意已启用的快捷键时显示短暂提示；切换 AutoClicker 时显示实际启停状态。",
   "toggle.enabled": "已使能",
-  "toggle.disabled": "已停用"
+  "toggle.disabled": "已停用",
+  "keys.manage": "管理快捷键",
+  "keys.triggered": "快捷键已触发"
 }

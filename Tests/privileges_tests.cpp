@@ -29,6 +29,8 @@ void run_privileges_tests(std::filesystem::path const& root) {
     check(SUCCEEDED(initialized), "privilege test COM initialization failed");
     try {
         check(!userSid().empty() && executable().is_absolute(), "process identity unavailable");
+        check(activationTarget(L"Sample_family!App",executable())==L"shell:AppsFolder\\Sample_family!App","packaged elevation must use shell activation");
+        check(activationTarget({},executable())==executable().wstring(),"unpackaged test host must retain its executable target");
         // Build the real task definition through Windows COM, without installing a task.
         ComPtr<ITaskDefinition> definition; check(SUCCEEDED(startupDefinition(&definition)), "startup definition creation failed");
         ComPtr<IPrincipal> principal; check(SUCCEEDED(definition->get_Principal(&principal)), "missing startup principal");

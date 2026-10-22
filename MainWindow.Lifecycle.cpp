@@ -3,6 +3,7 @@
 #include "Integration/I18n.h"
 #include "Integration/FileShellActions.h"
 #include "Integration/Privileges.h"
+#include "Integration/Diagnostics.h"
 #include <winrt/Windows.ApplicationModel.h>
 #include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
@@ -133,14 +134,14 @@ fire_and_forget MainWindow::Elevate() {
     if (SUCCEEDED(initialized)) CoUninitialize();
     co_await ui;
     bool ready = false;
-    if (launch.process) {
+    if (launch.started) {
         auto deadline = GetTickCount64() + 20000;
-        while (GetTickCount64() < deadline && WaitForSingleObject(launch.process, 0) == WAIT_TIMEOUT) {
+        while (GetTickCount64() < deadline && (!launch.process || WaitForSingleObject(launch.process, 0) == WAIT_TIMEOUT)) {
             if (WaitForSingleObject(launch.ready, 0) == WAIT_OBJECT_0) { ready = true; break; }
             co_await winrt::resume_after(std::chrono::milliseconds(50));
         }
         co_await ui;
-        CloseHandle(launch.process); CloseHandle(launch.ready);
+        if(launch.process)CloseHandle(launch.process); CloseHandle(launch.ready);
     }
     if (ready) {
         if (fileSearchIndex_) fileSearchIndex_->cancel();
@@ -153,6 +154,7 @@ fire_and_forget MainWindow::Elevate() {
         Application::Current().Exit(); co_return;
     }
     Root().IsHitTestVisible(true); elevationBusy_ = false;
+    if (!ready && launch.error != ERROR_CANCELLED) aelura::diagnostics::failure("privileges.restart",HRESULT_FROM_WIN32(launch.error?launch.error:WAIT_TIMEOUT),aelura::privileges::activationTarget(aelura::privileges::applicationId(),aelura::privileges::executable()));
     if (launch.error != ERROR_CANCELLED) Notice(tr("privilege.failed"), true);
 }
 fire_and_forget MainWindow::StartupSetting(std::optional<bool> enable) {
@@ -170,10 +172,15 @@ fire_and_forget MainWindow::StartupSetting(std::optional<bool> enable) {
             else {
                 auto launch = aelura::privileges::configureStartup(hwnd_, *enable);
                 configured = false;
-                if (launch.process) {
-                    while (WaitForSingleObject(launch.process, 0) == WAIT_TIMEOUT) co_await winrt::resume_after(std::chrono::milliseconds(100));
+                if (launch.started) {
+                    const auto deadline=GetTickCount64()+20000;
+                    while(GetTickCount64()<deadline && (!launch.process || WaitForSingleObject(launch.process,0)==WAIT_TIMEOUT)) {
+                        if(WaitForSingleObject(launch.ready,0)==WAIT_OBJECT_0){configured=true;break;}
+                        co_await winrt::resume_after(std::chrono::milliseconds(100));
+                    }
                     co_await ui;
-                    DWORD code{}; configured = GetExitCodeProcess(launch.process, &code) && code == 0; CloseHandle(launch.process);
+                    if(WaitForSingleObject(launch.ready,0)==WAIT_OBJECT_0)configured=true;
+                    if(launch.process)CloseHandle(launch.process);CloseHandle(launch.ready);
                 }
             }
         }

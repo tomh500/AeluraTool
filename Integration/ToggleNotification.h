@@ -9,6 +9,7 @@ public:
     explicit ToggleNotification(HWND owner);
     ~ToggleNotification();
     void show(std::wstring const& module, bool enabled, winrt::Microsoft::UI::Xaml::ElementTheme theme);
+    void action(std::wstring const& name, winrt::Microsoft::UI::Xaml::ElementTheme theme);
     void close();
 private:
     struct Impl; std::shared_ptr<Impl> impl_;

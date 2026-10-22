@@ -7,7 +7,9 @@ namespace aelura::privileges {
 bool elevated();
 std::wstring userSid();
 std::filesystem::path executable();
-struct Launch { HANDLE process{}, ready{}; DWORD error{}; };
+struct Launch { HANDLE process{}, ready{}; DWORD error{}; bool started{}; };
+std::wstring applicationId();
+std::wstring activationTarget(std::wstring const& appId, std::filesystem::path const& fallback);
 // The caller owns returned handles. Cancellation leaves the current process intact.
 Launch restart(HWND owner);
 Launch configureStartup(HWND owner, bool enabled);

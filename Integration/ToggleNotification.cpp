@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "ToggleNotification.h"
 #include "I18n.h"
+#include "Diagnostics.h"
 #include <microsoft.ui.xaml.window.h>
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Xaml.Hosting.h>
@@ -36,10 +37,12 @@ struct ToggleNotification::Impl {
         window.Closed([this](auto const&,WindowEventArgs const& e){if(!closing){e.Handled(true);ShowWindow(hwnd,SW_HIDE);if(timer)timer.Stop();}});
         timer=window.DispatcherQueue().CreateTimer();timer.Interval(std::chrono::milliseconds(30));timer.Tick([this](auto const&,auto const&){auto now=GetTickCount64();if(!leaving&&now>=until){animation(false);leaving=true;hiddenAt=now+210;}if(leaving&&now>=hiddenAt){ShowWindow(hwnd,SW_HIDE);timer.Stop();}});
     }
-    void show(std::wstring const& name,bool enabled,ElementTheme theme) {
+    void show(std::wstring const& name,bool enabled,ElementTheme theme,bool action=false) {
         if(!window)create();
         root.RequestedTheme(theme);root.Language(i18n::chinese()?L"zh-CN":L"en-US");
-        title.Text(i18n::tr(enabled?"toggle.enabled":"toggle.disabled"));module.Text(name);indicator.IsOn(enabled);window.Title(name);
+        title.Text(i18n::tr(action?"keys.triggered":enabled?"toggle.enabled":"toggle.disabled"));module.Text(name);indicator.IsOn(enabled);window.Title(name);
+        indicator.Visibility(action?Visibility::Collapsed:Visibility::Visible);
+        root.ColumnDefinitions().GetAt(0).Width({action?0.0:64.0,GridUnitType::Pixel});
         MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST),&monitor);auto dpi=GetDpiForWindow(owner);int width=MulDiv(340,dpi,96),height=MulDiv(90,dpi,96),margin=MulDiv(24,dpi,96);
         window.AppWindow().MoveAndResize({monitor.rcWork.right-width-margin,monitor.rcWork.bottom-height-margin,width,height});
         bool visible=IsWindowVisible(hwnd)!=FALSE;
@@ -51,6 +54,7 @@ struct ToggleNotification::Impl {
 };
 ToggleNotification::ToggleNotification(HWND owner):impl_(std::make_shared<Impl>(owner)){}
 ToggleNotification::~ToggleNotification(){close();}
-void ToggleNotification::show(std::wstring const& module,bool enabled,ElementTheme theme){impl_->show(module,enabled,theme);}
+void ToggleNotification::show(std::wstring const& module,bool enabled,ElementTheme theme){try{impl_->show(module,enabled,theme);}catch(hresult_error const& e){diagnostics::failure("shortcut.notification",e.code(),e.message());impl_->close();}}
+void ToggleNotification::action(std::wstring const& name,ElementTheme theme){try{impl_->show(name,false,theme,true);}catch(hresult_error const& e){diagnostics::failure("shortcut.notification",e.code(),e.message());impl_->close();}}
 void ToggleNotification::close(){impl_->close();}
 }
