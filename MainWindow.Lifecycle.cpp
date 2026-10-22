@@ -132,7 +132,12 @@ fire_and_forget MainWindow::Elevate() {
         }
         CloseHandle(launch.process); CloseHandle(launch.ready);
     }
-    if (ready) { if (fileSearchIndex_) fileSearchIndex_->cancel(); Close(); co_return; }
+    if (ready) {
+        if (fileSearchIndex_) fileSearchIndex_->cancel();
+        if (recording_) co_await recording_->shutdown();
+        RecordingHost().Content(nullptr); recording_.reset();
+        Close(); co_return;
+    }
     Root().IsHitTestVisible(true); elevationBusy_ = false;
     if (launch.error != ERROR_CANCELLED) Notice(tr("privilege.failed"), true);
 }
