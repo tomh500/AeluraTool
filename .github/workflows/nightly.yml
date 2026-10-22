@@ -2,9 +2,7 @@ name: Build and nightly release
 
 on:
   push:
-    branches: ['**']
-  pull_request:
-  workflow_dispatch:
+    branches: [main]
 
 permissions:
   contents: read
