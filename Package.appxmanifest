@@ -50,6 +50,8 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <!-- Required for the explicit runas restart of the packaged desktop host. -->
+    <rescap:Capability Name="allowElevation" />
     <rescap:Capability Name="allowElevation" />
     <systemai:Capability Name="systemAIModels"/>
   </Capabilities>
