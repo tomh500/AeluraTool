@@ -1,5 +1,14 @@
 # 验证记录
 
+## 管理员重启与主分支部署（2026-10-22，1.6.0.1）
+
+- 在原有 1.3.1.1 Debug 部署点击管理员重启后，Windows Application 日志记录 AeluraTool 的 0x8001010e（线程访问错误），随后进程退出。提权等待使用 resume_after 后未显式回到 UI apartment，是本次修正的线程问题。
+- 提权 Shell 启动和新实例等待旧进程退出放到后台，保留 UI dispatcher；等待结束后明确回到 UI apartment，再恢复界面或关闭旧窗口。交接成功后清理录屏、释放快捷键并退出旧应用。管理员自启动辅助进程的等待同样恢复 UI apartment。
+- git fetch --all --prune 完成；quick-file-search、screen-recording 分支已合并，file-hash-verifier 原已包含于 main。git branch --no-merged main 与远端对应检查均无输出。没有推送。
+- 最终源码的 Release、Debug 构建通过，两种配置的 scripts/test.ps1 全套通过：迁移、哈希、搜索、快捷键占用失败回滚、Everything IPC、文件 Shell、权限辅助身份拒绝、录屏、图片共享和截图通信。608 对资源及 586 处静态资源引用检查通过。符号链接夹具因权限错误 1314 未执行；构建仍有既有 FileShellActions.cpp 局部变量遮蔽警告。
+- 本机注册更新为 1.6.0.1 Release 布局，部署 exe 与构建 exe 的 SHA-256 一致。桌面“遥汐工具箱.lnk”保持包身份启动，并更新工作目录与图标到 Release AppX。更新后没有启动窗口，以免影响用户游戏。
+- 用户要求停止桌面技能操作后，仅执行后台构建、测试及部署。本轮最终版本没有实测 UAC 确认/取消后的完整重启、主题切换和分类导航交互；搜索与快捷键回滚仅有自动化核心验证。未注册真实自启动任务，也未进行异机安装验证。
+
 ## GitHub 托管环境路径兼容（2026-10-22）
 
 - 提权交接成功后先等待录屏模块 shutdown，再清空宿主并关闭旧主窗口，避免空闲预览/浮窗阻止旧进程退出。修改后 Release/Debug 构建通过；未在本轮实际操作 UAC 和预览窗口验证该交接路径。

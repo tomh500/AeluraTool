@@ -42,10 +42,19 @@ namespace winrt::AeluraTool::implementation
     /// Invoked when the application is launched.
     /// </summary>
     /// <param name="e">Details about the launch request and process.</param>
-    void App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
+    fire_and_forget App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
     {
+        auto lifetime = get_strong();
+        winrt::apartment_context ui;
         bool startupActivation = false;
-        if (!aelura::privileges::prepareLaunch(startupActivation)) { Exit(); return; }
+        // The replacement waits for its predecessor. Keep the XAML dispatcher
+        // pumping so shell activation can finish while that handoff is pending.
+        co_await winrt::resume_background();
+        const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        const bool prepared = aelura::privileges::prepareLaunch(startupActivation);
+        if (SUCCEEDED(initialized)) CoUninitialize();
+        co_await ui;
+        if (!prepared) { Exit(); co_return; }
         try {
             auto activation = Windows::ApplicationModel::AppInstance::GetActivatedEventArgs();
             startupActivation = startupActivation || (activation && activation.Kind() == Windows::ApplicationModel::Activation::ActivationKind::StartupTask);
@@ -53,7 +62,7 @@ namespace winrt::AeluraTool::implementation
         PWSTR local{};
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local))) {
             auto config = std::filesystem::path(local) / L"AeluraTool" / L"hotkeys.ini"; CoTaskMemFree(local);
-            if (aelura::privileges::requestAutomatic(nullptr, config, startupActivation)) { Exit(); return; }
+            if (aelura::privileges::requestAutomatic(nullptr, config, startupActivation)) { Exit(); co_return; }
         }
         auto main = make<MainWindow>();
         window = main;

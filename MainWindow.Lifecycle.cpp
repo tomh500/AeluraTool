@@ -122,7 +122,14 @@ fire_and_forget MainWindow::Elevate() {
     if (fileTask_ != FileTask::None || aelura::files::active() || closeDialogOpen_ || startupBusy_ || recordingCloseBusy_ || (recording_ && recording_->busy())) { Notice(tr("privilege.wait"), true); co_return; }
     auto lifetime = get_strong(); elevationBusy_ = true;
     Root().IsHitTestVisible(false); if (fileSearch_) fileSearch_->hide();
-    auto launch = aelura::privileges::restart(hwnd_);
+    winrt::apartment_context ui;
+    const auto owner = hwnd_;
+    // Shell activation may wait on the new process; never block this dispatcher.
+    co_await winrt::resume_background();
+    const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    auto launch = aelura::privileges::restart(owner);
+    if (SUCCEEDED(initialized)) CoUninitialize();
+    co_await ui;
     bool ready = false;
     if (launch.process) {
         auto deadline = GetTickCount64() + 20000;
@@ -130,13 +137,18 @@ fire_and_forget MainWindow::Elevate() {
             if (WaitForSingleObject(launch.ready, 0) == WAIT_OBJECT_0) { ready = true; break; }
             co_await winrt::resume_after(std::chrono::milliseconds(50));
         }
+        co_await ui;
         CloseHandle(launch.process); CloseHandle(launch.ready);
     }
     if (ready) {
         if (fileSearchIndex_) fileSearchIndex_->cancel();
         if (recording_) co_await recording_->shutdown();
         RecordingHost().Content(nullptr); recording_.reset();
-        Close(); co_return;
+        hotkeys_.release();
+        Close();
+        // The successor waits for the process, not just the main HWND. Auxiliary
+        // XAML windows must not keep the predecessor's singleton alive.
+        Application::Current().Exit(); co_return;
     }
     Root().IsHitTestVisible(true); elevationBusy_ = false;
     if (launch.error != ERROR_CANCELLED) Notice(tr("privilege.failed"), true);
@@ -144,6 +156,7 @@ fire_and_forget MainWindow::Elevate() {
 fire_and_forget MainWindow::StartupSetting(std::optional<bool> enable) {
     if (startupBusy_) co_return;
     auto lifetime = get_strong(); startupBusy_ = true; AutoStartSwitch().IsEnabled(false);
+    winrt::apartment_context ui;
     using namespace Windows::ApplicationModel;
     try {
         auto task = co_await StartupTask::GetAsync(L"AeluraStartup");
@@ -157,6 +170,7 @@ fire_and_forget MainWindow::StartupSetting(std::optional<bool> enable) {
                 configured = false;
                 if (launch.process) {
                     while (WaitForSingleObject(launch.process, 0) == WAIT_TIMEOUT) co_await winrt::resume_after(std::chrono::milliseconds(100));
+                    co_await ui;
                     DWORD code{}; configured = GetExitCodeProcess(launch.process, &code) && code == 0; CloseHandle(launch.process);
                 }
             }
