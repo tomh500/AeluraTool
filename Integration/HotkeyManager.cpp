@@ -32,6 +32,7 @@ void Manager::load(HWND hwnd, std::filesystem::path path) {
         const auto section = L"Hotkey." + b.id;
         auto read = [&](wchar_t const* key, UINT fallback) { return GetPrivateProfileIntW(section.c_str(), key, fallback, config.c_str()); };
         b.modifiers = read(L"Modifiers", b.modifiers); b.key = read(L"Key", b.key); b.enabled = read(L"Enabled", b.enabled) != 0;
+        b.notify = read(L"Notify", defaultNotify(b.id)) != 0;
         // Upgrade the previous capture binding without losing the user's choice.
         if (b.id == L"capture") {
             b.modifiers = read(L"Modifiers", GetPrivateProfileIntW(L"Capture", L"Modifiers", b.modifiers, config.c_str()));
@@ -42,8 +43,9 @@ void Manager::load(HWND hwnd, std::filesystem::path path) {
         if (valid(b.modifiers, b.key, b.id == L"print") && b.enabled) b.registered = RegisterHotKey(window, b.slot, b.modifiers | MOD_NOREPEAT, b.key) != 0;
     }
 }
-bool Manager::save(size_t index, UINT mods, UINT key, bool enabled, std::wstring& error) {
+bool Manager::save(size_t index, UINT mods, UINT key, bool enabled, std::wstring& error, std::optional<bool> notify) {
     auto& b = bindings.at(index);
+    const bool nextNotify=notify.value_or(b.notify);
     if (!valid(mods, key, b.id == L"print")) { error = tr("error.invalid_shortcut"); return false; }
     const bool same = b.registered && mods == b.modifiers && key == b.key;
     const int candidate = b.slot % 2 ? b.slot - 1 : b.slot + 1;
@@ -56,7 +58,8 @@ bool Manager::save(size_t index, UINT mods, UINT key, bool enabled, std::wstring
     const auto section = L"Hotkey." + b.id;
     if (ok) ok = WritePrivateProfileStringW(section.c_str(), L"Modifiers", std::to_wstring(mods).c_str(), temp.c_str()) &&
         WritePrivateProfileStringW(section.c_str(), L"Key", std::to_wstring(key).c_str(), temp.c_str()) &&
-        WritePrivateProfileStringW(section.c_str(), L"Enabled", enabled ? L"1" : L"0", temp.c_str());
+        WritePrivateProfileStringW(section.c_str(), L"Enabled", enabled ? L"1" : L"0", temp.c_str()) &&
+        WritePrivateProfileStringW(section.c_str(), L"Notify", nextNotify ? L"1" : L"0", temp.c_str());
     if (ok) {
         // The profile cache flush returns zero even on success; verify the persisted file separately.
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, temp.c_str());
@@ -68,7 +71,7 @@ bool Manager::save(size_t index, UINT mods, UINT key, bool enabled, std::wstring
     if (!ok) { DeleteFileW(temp.c_str()); if (enabled && !same) UnregisterHotKey(window, candidate); error = tr("error.preference_save"); return false; }
     if (b.registered && (!enabled || !same)) UnregisterHotKey(window, b.slot);
     if (enabled && !same) b.slot = candidate;
-    b.modifiers = mods; b.key = key; b.enabled = enabled; b.registered = enabled; return true;
+    b.modifiers = mods; b.key = key; b.enabled = enabled; b.registered = enabled; b.notify=nextNotify; return true;
 }
 void Manager::release() { for (auto& b : bindings) { if (b.registered) UnregisterHotKey(window, b.slot); b.registered = false; } }
 void Manager::localize() {

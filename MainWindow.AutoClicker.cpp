@@ -69,6 +69,6 @@ void MainWindow::ToggleAutoClicker(bool hotkey) {
     else{autoClicker_.stop();autoClickerTimer_.Stop();}
     RefreshAutoClicker();
     if(!hotkey)Notice(tr(requested?"autoclicker.enabled":"autoclicker.stopped"));
-    if((!hotkey||hotkeyNotifications_)&&toggleNotification_)toggleNotification_->show(tr("autoclicker.title"),requested,Root().RequestedTheme());
+    if(!hotkey&&toggleNotification_)toggleNotification_->show(tr("autoclicker.title"),requested,Root().RequestedTheme());
 }
 }

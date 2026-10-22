@@ -655,9 +655,12 @@
   "autoclicker.state_off_hint": "调整参数后打开开关，或使用已配置的快捷键。",
   "autoclicker.saved": "点击参数已保存。",
   "settings.hotkey_notifications": "快捷键操作提示",
-  "settings.hotkey_notifications_hint": "执行任意已启用的快捷键时显示短暂提示；切换 AutoClicker 时显示实际启停状态。",
+  "settings.hotkey_notifications_hint": "快捷键提示总开关。每个快捷键可在快捷键页面单独设置；截图和录屏相关快捷键默认关闭提示。",
   "toggle.enabled": "已使能",
   "toggle.disabled": "已停用",
   "keys.manage": "管理快捷键",
-  "keys.triggered": "快捷键已触发"
+  "keys.triggered": "快捷键已触发",
+  "keys.notify": "触发时显示提示",
+  "keys.notify_on": "提示：开启",
+  "keys.notify_off": "提示：关闭"
 }

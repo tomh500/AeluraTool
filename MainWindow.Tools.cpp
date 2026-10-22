@@ -48,7 +48,7 @@ void MainWindow::RenderKeys() {
         if (!aelura::catalog::matches(b.title + L" " + b.category + L" " + keys, std::wstring(KeySearch().Text()))) continue;
         ++count; Border card; card.Style(Root().Resources().Lookup(box_value(L"Card")).as<Style>());
         Grid row; row.ColumnSpacing(18); row.ColumnDefinitions().Append(column({1, GridUnitType::Star})); row.ColumnDefinitions().Append(column({180, GridUnitType::Pixel})); row.ColumnDefinitions().Append(column({1, GridUnitType::Auto}));
-        StackPanel labels; labels.Spacing(4); labels.Children().Append(text(b.title, 16)); labels.Children().Append(text(b.category, 12)); row.Children().Append(labels);
+        StackPanel labels; labels.Spacing(4); labels.Children().Append(text(b.title, 16)); labels.Children().Append(text(b.category, 12)); labels.Children().Append(text(tr(b.notify ? "keys.notify_on" : "keys.notify_off"), 12)); row.Children().Append(labels);
         StackPanel state; state.Spacing(4); state.Children().Append(text(keys)); state.Children().Append(text(!b.enabled ? tr("common.disabled") : b.registered ? tr("common.enabled") : tr("common.occupied"), 12)); Grid::SetColumn(state, 1); row.Children().Append(state);
         Button edit; edit.Content(box_value(tr("common.edit"))); edit.VerticalAlignment(VerticalAlignment::Center); edit.Click([this, i](auto const&, auto const&) { EditKey(i); }); Grid::SetColumn(edit, 2); row.Children().Append(edit);
         card.Child(row); KeyRows().Children().Append(card);
@@ -60,6 +60,7 @@ fire_and_forget MainWindow::EditKey(size_t index) {
     ContentDialog dialog; dialog.XamlRoot(Root().XamlRoot()); dialog.RequestedTheme(Root().RequestedTheme()); dialog.Title(box_value(b.title));
     dialog.PrimaryButtonText(tr("common.save")); dialog.CloseButtonText(tr("common.cancel")); dialog.DefaultButton(ContentDialogButton::Primary);
     StackPanel panel; panel.Spacing(16); ToggleSwitch enabled; enabled.Header(box_value(tr("keys.enable"))); enabled.IsOn(b.enabled); panel.Children().Append(enabled);
+    ToggleSwitch notify;notify.Header(box_value(tr("keys.notify")));notify.IsOn(b.notify);notify.OnContent(box_value(tr("common.enabled")));notify.OffContent(box_value(tr("common.disabled")));panel.Children().Append(notify);
     StackPanel mods; mods.Orientation(Orientation::Horizontal); mods.Spacing(12);
     CheckBox ctrl, alt, shift, win; ctrl.Content(box_value(L"Ctrl")); alt.Content(box_value(L"Alt")); shift.Content(box_value(L"Shift")); win.Content(box_value(L"Win"));
     ctrl.IsChecked((b.modifiers & MOD_CONTROL) != 0); alt.IsChecked((b.modifiers & MOD_ALT) != 0); shift.IsChecked((b.modifiers & MOD_SHIFT) != 0); win.IsChecked((b.modifiers & MOD_WIN) != 0);
@@ -72,7 +73,7 @@ fire_and_forget MainWindow::EditKey(size_t index) {
     dialog.PrimaryButtonClick([&](auto const&, ContentDialogButtonClickEventArgs const& args) {
         UINT modifiers = b.id == L"print" ? 0 : (ctrl.IsChecked().Value() ? MOD_CONTROL : 0) | (alt.IsChecked().Value() ? MOD_ALT : 0) | (shift.IsChecked().Value() ? MOD_SHIFT : 0) | (win.IsChecked().Value() ? MOD_WIN : 0);
         UINT k = b.id == L"print" ? VK_SNAPSHOT : values.at(key.SelectedIndex()); std::wstring issue;
-        if (!hotkeys_.save(index, modifiers, k, enabled.IsOn(), issue)) { error.Text(issue); args.Cancel(true); }
+        if (!hotkeys_.save(index, modifiers, k, enabled.IsOn(), issue, notify.IsOn())) { error.Text(issue); args.Cancel(true); }
     });
     try { co_await dialog.ShowAsync(); RenderKeys(); RefreshAutoClicker(); } catch (hresult_error const& e) { Notice(e.message(), true); }
 }

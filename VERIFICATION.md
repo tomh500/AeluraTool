@@ -1,5 +1,14 @@
 # 验证记录
 
+## 1.6.3.2 每个快捷键独立提示选项（2026-10-22）
+
+- Binding 新增 notify 布尔值，每项保存在 Hotkey.<id>/Notify。没有单项配置时截图、PrintScreen、截图预览、录屏和重放保存默认 false，其他快捷键默认 true；已有单项设置优先。编辑快捷键可独立开关“触发时显示提示”，列表显示该项状态；总开关与单项开关均为 true 才显示快捷键弹窗。
+- 所有 WM_HOTKEY 提示包括 AutoClicker 实际启停统一从 shouldNotify 判断；工具自身的界面操作提示及任务进度不作为快捷键提示处理。保存单项提示沿用原子临时文件替换与快捷键注册回滚，旧调用未提供 notify 参数时保留当前值。
+- 新增核心断言覆盖全部默认值、总开关/单项开关组合、媒体快捷键显式开启后保存重载、其他未配置媒体项保持默认关闭，以及占用和持久化失败不修改旧提示值。测试只使用自动创建的临时目录。
+- Debug/Release 构建、最终 Release 签名打包和两配置 scripts/test.ps1 全套通过，包含迁移、搜索、快捷键回滚、录屏、图片共享及截图通信。664 对语言资源、614 处静态引用检查与 git diff --check 通过。符号链接夹具仍因权限错误 1314 跳过。
+- 最终本机部署 Release 1.6.3.2，核对部署/构建 EXE 哈希相同，桌面快捷方式包身份参数和工作目录正确。分发包 AeluraTool-1.6.3.2-x64-20261022-222548.zip，安装脚本 CheckOnly 通过。未新增可见 UI、真实快捷键弹窗或干净机器安装实测；保留用户 BUILD_AND_DISTRIBUTE.md 修改。
+- 日志：artifacts/hotkey-notify-build-debug.log、hotkey-notify-distribution.log、hotkey-notify-tests-debug.log、hotkey-notify-tests-release.log。
+
 ## 1.6.3.1 移除 Esc 停用与模块内快捷键卡片（2026-10-22）
 
 - 按用户要求删除 AutoClicker 引擎的 Esc 检测，Esc 不再停用连点；使能状态只由工具开关或已配置的统一快捷键切换。更新中英文 Clicker 提示，其他截图/选区等工具自己的 Esc 取消逻辑保持原有行为。

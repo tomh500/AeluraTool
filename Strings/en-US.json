@@ -655,9 +655,12 @@
   "autoclicker.state_off_hint": "Adjust settings, then enable the switch or use your configured shortcut.",
   "autoclicker.saved": "Click settings saved.",
   "settings.hotkey_notifications": "Shortcut notifications",
-  "settings.hotkey_notifications_hint": "Show a brief notification for every enabled shortcut. AutoClicker toggles show its actual enabled or disabled state.",
+  "settings.hotkey_notifications_hint": "Master switch for shortcut notifications. Configure each shortcut on the Shortcuts page. Capture and recording shortcuts default to notifications off.",
   "toggle.enabled": "Enabled",
   "toggle.disabled": "Disabled",
   "keys.manage": "Manage shortcuts",
-  "keys.triggered": "Shortcut triggered"
+  "keys.triggered": "Shortcut triggered",
+  "keys.notify": "Show notification when triggered",
+  "keys.notify_on": "Notifications: on",
+  "keys.notify_off": "Notifications: off"
 }
