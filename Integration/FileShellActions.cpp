@@ -208,7 +208,13 @@ HRESULT perform(Request const& request, std::vector<Path>& changed, bool& aborte
         { std::ofstream output(journal, std::ios::app); for (auto const& [source, target] : sink->copies) output << "Copied\t" << utf8(source) << "\t" << utf8(target) << "\n"; output.flush(); if (!output.good() && SUCCEEDED(hr)) hr = E_FAIL; }
         if (FAILED(hr) || aborted || job().stop) return job().stop ? E_ABORT : hr;
         for (auto const& original : originals) {
-            auto target = sink->copies.find(original.source); if (target == sink->copies.end()) return E_FAIL;
+            // Shell expands 8.3 aliases; match the existing source by identity,
+            // never by a guessed destination name, before verifying the copy.
+            auto target = std::find_if(sink->copies.begin(), sink->copies.end(), [&](auto const& copy) {
+                std::error_code identityError;
+                return std::filesystem::equivalent(copy.first, original.source, identityError) && !identityError;
+            });
+            if (target == sink->copies.end()) return E_FAIL;
             if (FAILED(hr = verify(original, target->second))) return hr;
         }
         // Only after all copied content is verified do we remove the originals.
