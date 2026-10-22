@@ -1,5 +1,16 @@
 # 验证记录
 
+## 1.6.1.0 分发安装向导与本机部署（2026-10-22）
+
+- Debug 解决方案构建与签名 Release 打包构建通过；两种配置的 scripts/test.ps1 全套通过，包含迁移、搜索、快捷键失败回滚、AutoClicker 参数、录屏、图片共享及截图通信。647 对资源键及 606 处静态引用检查通过，PowerShell 脚本语法解析通过。符号链接夹具仍因权限错误 1314 跳过。
+- 实际注册发现上一轮 allowElevation 被重复声明，导致 0x80080204 清单错误；已移除重复项。此前“补齐缺项”的判断不准确，本次实际部署验证取代该判断；仍未实测横幅完整 UAC 交接。
+- Debug 部署后，最终注册到 Release/AppX-1.6.1.0 的本机开发布局。跨 Debug/Release 同版本切换会保留应用数据、解除旧开发注册后注册新布局，注册失败时尝试恢复旧布局。未运行真实迁移/录屏任务，部署不强制终止运行中的工具。
+- 已核对本机注册版本 1.6.1.0、Release 安装位置、桌面快捷方式的包身份启动参数、图标和工作目录。部署与构建 EXE 的 SHA-256 均为 8A6407CFCAE373A3AF2FF2AA79600A12D3C3DC2254E5AEB67DFD897236105D16。build.ps1/package.ps1 后续成功构建自动本机部署，CI 跳过本机注册。
+- 使用现有 CN=jingy 代码签名证书生成签名 MSIX 与 AeluraTool-1.6.1.0-x64-20261022-213344.zip，未导出私钥。ZIP 包含 Install.cmd、固定签名证书指纹的 Install.ps1、中英文资源、公开 CER、Windows App Runtime 与 VC x64 依赖及安装说明；检查没有 PFX/P12/KEY 文件。ZIP SHA-256 为 D96C142619D8073B7139EE7218DA06A7D4F77498E2CAF5240D8CF0CB52C5299D。
+- Windows PowerShell 5.1 实际执行发布目录 Install.ps1 -CheckOnly 成功；自动创建临时目录验证缺少包与错误签名者均返回 1，未安装证书/应用。测试夹具保留于系统临时目录 AeluraInstallerTests-2b9b850455db4904be9b8e03a847ceaf。本机签名检查因自签证书不受信任显示 UnknownError，签名者与公开证书指纹相符；最终安装完整性与 TrustedPeople 信任由 Add-AppxPackage 校验，不要求导入根证书存储。
+- 本机安装为开发注册，未运行发布向导的证书提权与 MSIX 完整安装流程；未在没有 VS 的干净电脑/虚拟机上实测首次安装、UAC 取消、升级及卸载。发布接收者无需编译工具，但首次信任自签证书需要管理员权限，仍受设备策略约束。界面主题、导航和真实游戏连点未增加 UI 实测。
+- 日志位于 artifacts/installer-build-debug.log、artifacts/installer-distribution.log、artifacts/installer-tests-debug.log 和 artifacts/installer-tests-release.log。原有 BUILD_AND_DISTRIBUTE.md 用户空行修改保留，未纳入提交。
+
 ## AutoClicker 与安装包提权声明（2026-10-22）
 
 - 游戏分类新增 AutoClicker，注册统一搜索与可编辑的可选快捷键。支持五种鼠标长按触发、鼠标键及字母/数字/F1–F24 输出、1–100 次/秒和间隔 ±0–90% 随机幅度。长按触发替代该键原操作，松开停止；Esc、重新打开设置或退出时停用，前台窗口变化时清除长按状态。使用标准低级鼠标钩子区分物理触发与注入事件，标准 SendInput 发送配对输入；没有隐藏输入标记、驱动注入或反作弊规避。

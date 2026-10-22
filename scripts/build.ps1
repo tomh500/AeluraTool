@@ -8,4 +8,5 @@ Push-Location $repoRoot
 try {
     & $msbuild AeluraTool.slnx /m /nologo /v:minimal "/p:Configuration=$Configuration" /p:Platform=x64 /p:VisualStudioVersion=18.0 /fl "/flp:logfile=artifacts\build-$($Configuration.ToLower()).log;encoding=UTF-8"
     if ($LASTEXITCODE -ne 0) { throw "Build failed with exit code $LASTEXITCODE" }
+    if (!$env:CI) { & (Join-Path $PSScriptRoot 'deploy.ps1') -Configuration $Configuration }
 } finally { Pop-Location }

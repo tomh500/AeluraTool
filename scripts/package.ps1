@@ -16,6 +16,7 @@ Push-Location $repoRoot
 try {
     & $msbuild AeluraTool.vcxproj /m /nologo /v:minimal /p:Configuration=Release /p:Platform=x64 /p:VisualStudioVersion=18.0 /p:GenerateAppxPackageOnBuild=true /p:UapAppxPackageBuildMode=SideloadOnly /p:AppxBundle=Never "/p:AppxPackageDir=$packageRoot" @signing /fl '/flp:logfile=artifacts\package-release.log;encoding=UTF-8'
     if ($LASTEXITCODE -ne 0) { throw "Packaging failed with exit code $LASTEXITCODE" }
+    if (!$env:CI) { & (Join-Path $PSScriptRoot 'deploy.ps1') -Configuration Release }
     Write-Output "Package output: $packageRoot"
     if (!$CertificateThumbprint) { Write-Warning 'Package is unsigned. Sign it with a trusted certificate before installation or distribution.' }
 } finally { Pop-Location }
