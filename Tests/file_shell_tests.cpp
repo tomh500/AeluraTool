@@ -20,7 +20,16 @@ void run_file_shell_tests(fs::path const& root) {
     auto initialized = OleInitialize(nullptr); check(SUCCEEDED(initialized), "test STA initialization failed");
     for (bool cut : {false, true}) {
         Microsoft::WRL::ComPtr<IDataObject> data; check(SUCCEEDED(dataObject(source, cut, &data)), "shell file data object failed");
-        auto transfer = readTransfer(data.Get()); check(transfer.paths.size() == 1 && transfer.paths[0] == source && transfer.move == cut, "Explorer-compatible file transfer data failed");
+        auto transfer = readTransfer(data.Get());
+        std::error_code identityError;
+        // Shell may expand an 8.3 temporary-directory path to its long name.
+        const bool sameFile = transfer.paths.size() == 1 && fs::equivalent(transfer.paths[0], source, identityError);
+        if (!sameFile || transfer.move != cut) {
+            std::wcerr << L"Transfer paths=" << transfer.paths.size() << L" expected=" << source
+                << L" actual=" << (transfer.paths.empty() ? fs::path{} : transfer.paths[0])
+                << L" cut=" << cut << L" move=" << transfer.move << L" error=" << identityError.value() << L"\n";
+        }
+        check(sameFile && !identityError && transfer.move == cut, "Explorer-compatible file transfer data failed");
     }
     OleUninitialize();
     Request copy; copy.kind = Kind::Paste; copy.sources = {source}; copy.destination = root / L"destination"; copy.interactive = false;

@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: windows-2025-vs2026
     timeout-minutes: 180
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/vcpkg-binary-cache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,9 +26,14 @@ jobs:
         run: |
           nuget restore packages.config -PackagesDirectory packages -NonInteractive
           if ($LASTEXITCODE) { throw 'NuGet restore failed' }
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: windows-vs2026-vcpkg-66c0373dc7fca549e5803087b9487edfe3aca0a1-v1
       - name: Restore native dependencies
         shell: pwsh
         run: |
+          New-Item $env:VCPKG_DEFAULT_BINARY_CACHE -ItemType Directory -Force | Out-Null
           git clone https://github.com/microsoft/vcpkg.git "$env:USERPROFILE/vcpkg"
           if ($LASTEXITCODE) { throw 'vcpkg clone failed' }
           git -C "$env:USERPROFILE/vcpkg" checkout 66c0373dc7fca549e5803087b9487edfe3aca0a1
