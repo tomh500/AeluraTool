@@ -1,0 +1,108 @@
+name: Build and nightly release
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 180
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/artifacts/vcpkg-binary-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: NuGet/setup-nuget@v2
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: |
+          nuget restore packages.config -PackagesDirectory packages -NonInteractive
+          if ($LASTEXITCODE) { throw 'NuGet restore failed' }
+      - uses: actions/cache/restore@v4
+        id: native-cache
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: windows-vs2026-vcpkg-66c0373dc7fca549e5803087b9487edfe3aca0a1-v1
+      - name: Restore native dependencies
+        shell: pwsh
+        run: |
+          New-Item $env:VCPKG_DEFAULT_BINARY_CACHE -ItemType Directory -Force | Out-Null
+          git clone https://github.com/microsoft/vcpkg.git "$env:USERPROFILE/vcpkg"
+          if ($LASTEXITCODE) { throw 'vcpkg clone failed' }
+          git -C "$env:USERPROFILE/vcpkg" checkout 66c0373dc7fca549e5803087b9487edfe3aca0a1
+          if ($LASTEXITCODE) { throw 'vcpkg checkout failed' }
+          & "$env:USERPROFILE/vcpkg/bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE) { throw 'vcpkg bootstrap failed' }
+          & "$env:USERPROFILE/vcpkg/vcpkg.exe" install nlohmann-json 'cpp-httplib[brotli]' yaml-cpp sdl2 sdl2-mixer sdl2-ttf simdjson --triplet x64-windows-static
+          if ($LASTEXITCODE) { throw 'vcpkg restore failed' }
+      - uses: actions/cache/save@v4
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: windows-vs2026-vcpkg-66c0373dc7fca549e5803087b9487edfe3aca0a1-v1
+      - name: Generate timestamp version
+        id: version
+        shell: pwsh
+        run: ./scripts/nightly-version.ps1
+      - name: Build and test Release and Debug
+        shell: pwsh
+        run: |
+          ./scripts/build.ps1 -Configuration Release
+          ./scripts/test.ps1 -Configuration Release
+          ./scripts/build.ps1 -Configuration Debug
+          ./scripts/test.ps1 -Configuration Debug
+      - name: Package unsigned nightly
+        shell: pwsh
+        run: |
+          ./scripts/package.ps1
+          $name = 'AeluraTool-nightly-${{ steps.version.outputs.stamp }}-${{ github.run_id }}-${{ github.run_attempt }}-x64'
+          New-Item artifacts/nightly -ItemType Directory -Force | Out-Null
+          Compress-Archive -Path artifacts/packages/* -DestinationPath "artifacts/nightly/$name.zip"
+          Get-FileHash "artifacts/nightly/$name.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $name.zip" } | Set-Content "artifacts/nightly/$name.sha256" -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/nightly/*
+          if-no-files-found: error
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/*.log
+          if-no-files-found: ignore
+    outputs:
+      stamp: ${{ steps.version.outputs.stamp }}
+      version: ${{ steps.version.outputs.version }}
+
+  release:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: nightly
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_STAMP: ${{ needs.build.outputs.stamp }}
+          PACKAGE_VERSION: ${{ needs.build.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          tag="nightly-${BUILD_STAMP}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf 'Branch: %s\nCommit: %s\nUTC: %s\nMSIX version: %s\n\nUnsigned test package. Sign with a trusted certificate before installation.\n' "$BRANCH" "$GITHUB_SHA" "$BUILD_STAMP" "$PACKAGE_VERSION" > notes.md
+          gh release create "$tag" nightly/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Nightly ${BUILD_STAMP} (${BRANCH})" --notes-file notes.md

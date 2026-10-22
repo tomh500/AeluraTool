@@ -1,0 +1,38 @@
+#pragma code_page(65001)
+#include "Resource.h"
+#include <windows.h>
+
+IDI_SCREENSHOTPLUS ICON "ScreenShotPlus.ico"
+IDI_SMALL ICON "small.ico"
+IDR_THIRD_PARTY_NOTICES RCDATA "THIRD_PARTY_NOTICES.md"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,7,2,0
+ PRODUCTVERSION 1,7,2,0
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+ FILEFLAGS VS_FF_DEBUG
+#else
+ FILEFLAGS 0
+#endif
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE 0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "ScreenShotPlus - Region capture and file sharing\0"
+            VALUE "FileVersion", "1.7.2\0"
+            VALUE "InternalName", "ScreenShotPlus\0"
+            VALUE "OriginalFilename", "ScreenShotPlus.exe\0"
+            VALUE "ProductName", "ScreenShotPlus\0"
+            VALUE "ProductVersion", "1.7.2\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

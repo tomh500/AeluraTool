@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+ <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+ <resheader name="version"><value>2.0</value></resheader>
+ <data name="AppDisplayName" xml:space="preserve"><value>遥汐工具箱</value></data>
+ <data name="AppDescription" xml:space="preserve"><value>图像、文件与游戏工具</value></data>
+</root>

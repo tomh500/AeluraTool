@@ -1,0 +1,59 @@
+#include "pch.h"
+#include "App.xaml.h"
+#include "MainWindow.xaml.h"
+#include "Integration/Privileges.h"
+#include <shlobj.h>
+#include <winrt/Windows.ApplicationModel.h>
+
+using namespace winrt;
+using namespace Microsoft::UI::Xaml;
+
+// To learn more about WinUI, the WinUI project structure,
+// and more about our project templates, see: http://aka.ms/winui-project-info.
+
+namespace winrt::AeluraTool::implementation
+{
+    /// <summary>
+    /// Initializes the singleton application object.  This is the first line of authored code
+    /// executed, and as such is the logical equivalent of main() or WinMain().
+    /// </summary>
+    App::App()
+    {
+        // Xaml objects should not call InitializeComponent during construction.
+        // See https://github.com/microsoft/cppwinrt/tree/master/nuget#initializecomponent
+
+#if defined _DEBUG && !defined DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION
+        UnhandledException([](IInspectable const&, UnhandledExceptionEventArgs const& e)
+            {
+                if (IsDebuggerPresent())
+                {
+                    auto errorMessage = e.Message();
+                    __debugbreak();
+                }
+            });
+#endif
+    }
+
+    /// <summary>
+    /// Invoked when the application is launched.
+    /// </summary>
+    /// <param name="e">Details about the launch request and process.</param>
+    void App::OnLaunched([[maybe_unused]] LaunchActivatedEventArgs const& e)
+    {
+        bool startupActivation = false;
+        if (!aelura::privileges::prepareLaunch(startupActivation)) { Exit(); return; }
+        try {
+            auto activation = Windows::ApplicationModel::AppInstance::GetActivatedEventArgs();
+            startupActivation = startupActivation || (activation && activation.Kind() == Windows::ApplicationModel::Activation::ActivationKind::StartupTask);
+        } catch (hresult_error const&) { /* Keep a manual launch accessible if activation metadata is unavailable. */ }
+        PWSTR local{};
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local))) {
+            auto config = std::filesystem::path(local) / L"AeluraTool" / L"hotkeys.ini"; CoTaskMemFree(local);
+            if (aelura::privileges::requestAutomatic(nullptr, config, startupActivation)) { Exit(); return; }
+        }
+        auto main = make<MainWindow>();
+        window = main;
+        get_self<MainWindow>(main)->Setup(startupActivation);
+        if (get_self<MainWindow>(main)->Ready()) get_self<MainWindow>(main)->ShowInitial();
+    }
+}

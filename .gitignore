@@ -1,0 +1,11 @@
+.vs/
+x64/
+AeluraTool/x64/
+artifacts/
+packages/
+Generated Files/
+*.user
+*.aps
+*.pdb
+*.obj
+*.log
