@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "MainWindow.g.h"
 #include <filesystem>
 #include <atomic>
@@ -7,6 +7,7 @@
 #include "Integration/DesktopLifecycle.h"
 #include "Integration/HotkeyManager.h"
 #include "Integration/FileHash.h"
+#include "Integration/RecordingPanel.h"
 #include "Integration/FileSearchWindow.h"
 #include <memory>
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
@@ -38,13 +39,14 @@ namespace winrt::AeluraTool::implementation {
         bool restoringNavigation_{};
         aelura::desktop::TrayIcon tray_;
         int closeAction_{};
-        bool closeDialogOpen_{}, startupBusy_{}, startupActivation_{};
+        bool closeDialogOpen_{}, startupBusy_{}, startupActivation_{}, recordingCloseBusy_{};
         bool elevationBusy_{};
         bool moveBusy_{};
         enum class FileTask { None, Migration, Hash };
         FileTask fileTask_{FileTask::None};
         bool fileTaskNotice_{};
         aelura::hash::Session hashSession_;
+        std::unique_ptr<aelura::recording::Panel> recording_;
         Microsoft::UI::Dispatching::DispatcherQueueTimer hashTimer_{nullptr};
         bool ready_{}, localizing_{}, startupPlayed_{};
         int languagePreference_{};

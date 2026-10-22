@@ -23,6 +23,8 @@ void Manager::load(HWND hwnd, std::filesystem::path path) {
         {L"strike", tr("keys.strike"), tr("nav.games"), MOD_CONTROL | MOD_ALT, 'S', false},
         {L"print", tr("keys.print"), tr("nav.images"), 0, VK_SNAPSHOT, false},
         {L"hash", tr("keys.hash"), tr("nav.files"), MOD_CONTROL | MOD_ALT, 'H', false},
+        {L"record", tr("record.hotkey"), tr("nav.images"), MOD_CONTROL | MOD_ALT, 'R', false},
+        {L"replay-save", tr("record.save_replay"), tr("nav.images"), MOD_CONTROL | MOD_ALT | MOD_SHIFT, 'F', true},
         {L"filesearch", tr("filesearch.title"), tr("nav.files"), MOD_CONTROL | MOD_ALT, 'F', true}};
     for (size_t i = 0; i < bindings.size(); ++i) {
         auto& b = bindings[i]; b.slot = 200 + static_cast<int>(i) * 2;
@@ -71,7 +73,8 @@ void Manager::release() { for (auto& b : bindings) { if (b.registered) Unregiste
 void Manager::localize() {
     for (auto& binding : bindings) {
         const char* title = binding.id == L"capture" ? "capture.start" : binding.id == L"preview" ? "capture.recent" :
-            binding.id == L"move" ? "keys.move" : binding.id == L"strike" ? "keys.strike" : binding.id == L"hash" ? "keys.hash" : binding.id == L"filesearch" ? "filesearch.title" : "keys.print";
+            binding.id == L"move" ? "keys.move" : binding.id == L"strike" ? "keys.strike" : binding.id == L"hash" ? "keys.hash" :
+            binding.id == L"record" ? "record.hotkey" : binding.id == L"replay-save" ? "record.save_replay" : binding.id == L"filesearch" ? "filesearch.title" : "keys.print";
         binding.title = tr(title);
         binding.category = i18n::category(binding.id == L"move" || binding.id == L"hash" || binding.id == L"filesearch" ? 2 : binding.id == L"strike" ? 3 : 1);
     }

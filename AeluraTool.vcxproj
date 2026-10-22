@@ -136,6 +136,16 @@
     <ClInclude Include="Integration\FileShellActions.h" />
     <ClInclude Include="Integration\FileSearchWindow.h" />
     <ClInclude Include="Integration\I18n.h" />
+    <ClInclude Include="Integration\RecordingPanel.h" />
+    <ClInclude Include="Integration\RecordingSelector.h" />
+    <ClInclude Include="Integration\RecordingNotification.h" />
+    <ClInclude Include="Integration\Diagnostics.h" />
+    <ClInclude Include="Tools\ScreenRecorder\Recording.h" />
+    <ClInclude Include="Tools\ScreenRecorder\Recording.Media.h" />
+    <ClInclude Include="Tools\ScreenRecorder\Recording.Memory.h" />
+    <ClInclude Include="Tools\ScreenRecorder\Recording.Gpu.h" />
+    <ClInclude Include="Tools\ScreenRecorder\Recording.Desktop.h" />
+    <ClInclude Include="Tools\ScreenRecorder\Recording.Audio.h" />
     <ClInclude Include="App.xaml.h">
       <DependentUpon>App.xaml</DependentUpon>
     </ClInclude>
@@ -161,6 +171,23 @@
     <ClCompile Include="MainWindow.Startup.cpp" />
     <ClCompile Include="MainWindow.Lifecycle.cpp" />
     <ClCompile Include="MainWindow.Search.cpp" />
+    <ClCompile Include="Integration\RecordingPanel.cpp" />
+    <ClCompile Include="Integration\RecordingSelector.cpp" />
+    <ClCompile Include="Integration\RecordingNotification.cpp" />
+    <ClCompile Include="Integration\Diagnostics.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><AdditionalIncludeDirectories>$(ProjectDir)Tools\ScreenShotPlus\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Settings.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><AdditionalIncludeDirectories>$(ProjectDir)Tools\ScreenShotPlus\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Media.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Remux.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Memory.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Gpu.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Desktop.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Audio.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Window.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Dx12.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Nvenc12.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Nvenc.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Tools\ScreenRecorder\Recording.Amf.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\DesktopLifecycle.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\I18n.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><AdditionalIncludeDirectories>$(ProjectDir)Tools\ScreenShotPlus\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <ClCompile Include="Integration\HotkeyManager.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>

@@ -41,6 +41,7 @@ namespace {
         POINT latestPoint{}, pendingPoint{};
         RECT latestOrigin{}, pendingOrigin{};
         bool restorePreview = false;
+        HWND regionReceiver{};
         bool launching = false, launchStarted = false, initialized = false;
         bool secret = false;
         unsigned logoClicks = 0, secretLetters = 0;
@@ -289,6 +290,27 @@ namespace {
             }
             if (wparam == Shutdown) { DestroyWindow(hwnd); return Accepted; }
             if (app.exiting) return Busy;
+            if (wparam == Prepare) return Accepted;
+            if (wparam == CancelRegion) {
+                if (app.regionReceiver == reinterpret_cast<HWND>(lparam)) CancelSelection();
+                return Accepted;
+            }
+            if (wparam == SelectRegion) {
+                auto receiver = reinterpret_cast<HWND>(lparam);
+                if (app.phase != App::Idle || SettingsVisible() || !IsWindow(receiver)) return Busy;
+                EndLaunch(); ShowWindow(hwnd, SW_HIDE); HidePreview(); DwmFlush();
+                app.phase = App::Selecting; app.regionReceiver = receiver;
+                auto complete = [receiver](RECT bounds, wstring failure) {
+                    app.phase = App::Idle; app.regionReceiver = nullptr;
+                    RegionResult result{bounds, failure.empty() ? S_OK : E_FAIL};
+                    COPYDATASTRUCT data{RegionResultTag, sizeof(result), &result}; DWORD_PTR ignored{};
+                    SendMessageTimeoutW(receiver, WM_COPYDATA, reinterpret_cast<WPARAM>(app.panel),
+                        reinterpret_cast<LPARAM>(&data), SMTO_ABORTIFHUNG, 1000, &ignored);
+                };
+                wstring error;
+                if (!BeginRegionSelection(app.instance, complete, error)) complete({}, error);
+                return Accepted;
+            }
             if (wparam == CanCapture || wparam == Start) {
                 if (app.phase != App::Idle || SettingsVisible()) return Busy;
                 if (wparam == Start) StartCapture();

@@ -82,6 +82,7 @@ void MainWindow::LocalizeLifecycle() {
 }
 fire_and_forget MainWindow::RequestClose(bool explicitExit) {
     auto lifetime = get_strong();
+    if(recordingCloseBusy_)co_return;
     if (elevationBusy_) co_return;
     if (aelura::files::active()) { RestoreWindow(); Page(5); Notice(tr("filesearch.wait_files"), true); co_return; }
     if (fileSearchIndex_ && fileSearchIndex_->progress().running) { RestoreWindow(); Page(5); Notice(tr("filesearch.wait_index"), true); co_return; }
@@ -110,11 +111,15 @@ fire_and_forget MainWindow::RequestClose(bool explicitExit) {
             }
         } catch (hresult_error const&) { closeDialogOpen_ = false; Notice(tr("close.dialog_failed"), true); co_return; }
     }
-    if (action == 2) HideToTray(); else Close();
+    if (action == 2) HideToTray(); else {
+        recordingCloseBusy_=true;ContentShell().IsHitTestVisible(false);hotkeys_.release();
+        if(recording_){Notice(tr("record.exiting"));co_await recording_->shutdown();}
+        RecordingHost().Content(nullptr);recording_.reset();Close();
+    }
 }
 fire_and_forget MainWindow::Elevate() {
     if (elevationBusy_ || aelura::privileges::elevated()) co_return;
-    if (fileTask_ != FileTask::None || aelura::files::active() || closeDialogOpen_ || startupBusy_) { Notice(tr("privilege.wait"), true); co_return; }
+    if (fileTask_ != FileTask::None || aelura::files::active() || closeDialogOpen_ || startupBusy_ || recordingCloseBusy_ || (recording_ && recording_->busy())) { Notice(tr("privilege.wait"), true); co_return; }
     auto lifetime = get_strong(); elevationBusy_ = true;
     Root().IsHitTestVisible(false); if (fileSearch_) fileSearch_->hide();
     auto launch = aelura::privileges::restart(hwnd_);
@@ -127,7 +132,12 @@ fire_and_forget MainWindow::Elevate() {
         }
         CloseHandle(launch.process); CloseHandle(launch.ready);
     }
-    if (ready) { if (fileSearchIndex_) fileSearchIndex_->cancel(); Close(); co_return; }
+    if (ready) {
+        if (fileSearchIndex_) fileSearchIndex_->cancel();
+        if (recording_) co_await recording_->shutdown();
+        RecordingHost().Content(nullptr); recording_.reset();
+        Close(); co_return;
+    }
     Root().IsHitTestVisible(true); elevationBusy_ = false;
     if (launch.error != ERROR_CANCELLED) Notice(tr("privilege.failed"), true);
 }

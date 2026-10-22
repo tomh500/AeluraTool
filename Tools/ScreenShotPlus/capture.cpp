@@ -38,6 +38,7 @@ struct Selection {
     RECT chrome{};
     POINT paintedPointer{};
     CaptureDone done;
+    RegionDone regionDone;
 } selection;
 unsigned captureShade = 60;
 bool captureGuides = true, captureAnimation = true;
@@ -70,6 +71,14 @@ void HoverWindow(POINT point) {
 }
 void MovePointer(POINT point) {
     selection.end = CaptureEdgePoint(point, selection.desktop.right - selection.desktop.left, selection.desktop.bottom - selection.desktop.top);
+    // Each monitor has its own last physical pixel, including internal edges
+    // of a multi-monitor desktop. Mouse coordinates never undergo DIP rounding.
+    POINT physical{point.x + selection.desktop.left, point.y + selection.desktop.top};
+    MONITORINFO monitor{sizeof(monitor)};
+    if (GetMonitorInfoW(MonitorFromPoint(physical, MONITOR_DEFAULTTONEAREST), &monitor)) {
+        if (physical.x == monitor.rcMonitor.right - 1) selection.end.x = monitor.rcMonitor.right - selection.desktop.left;
+        if (physical.y == monitor.rcMonitor.bottom - 1) selection.end.y = monitor.rcMonitor.bottom - selection.desktop.top;
+    }
     if (!selection.active) HoverWindow(point);
     else if (captureWindowSelection && !selection.dragging &&
         (abs(selection.end.x - selection.begin.x) >= max(1, GetSystemMetrics(SM_CXDRAG)) ||
@@ -148,14 +157,17 @@ void Finish(bool accept, wstring error = {}) {
     unique_ptr<Bitmap> cropped;
     const RECT r = SelectionRect(selection.begin, selection.end,
         selection.desktop.right - selection.desktop.left, selection.desktop.bottom - selection.desktop.top);
-    if (accept && r.right > r.left && r.bottom > r.top) {
+    const bool valid = accept && r.right > r.left && r.bottom > r.top;
+    if (valid && !selection.regionDone) {
         cropped.reset(selection.image->Clone(Rect(r.left, r.top, r.right - r.left, r.bottom - r.top), PixelFormat32bppRGB));
         if (!cropped || cropped->GetLastStatus() != Ok) { cropped.reset(); error = tr("screen.capture.001"); }
     }
-    selection.lastCapture = cropped ? RECT{selection.desktop.left + r.left, selection.desktop.top + r.top,
+    selection.lastCapture = (cropped || (valid && selection.regionDone)) ? RECT{selection.desktop.left + r.left, selection.desktop.top + r.top,
         selection.desktop.left + r.right, selection.desktop.top + r.bottom} : RECT{};
     POINT point{selection.desktop.left + selection.end.x, selection.desktop.top + selection.end.y};
     CaptureDone done = move(selection.done);
+    RegionDone regionDone = move(selection.regionDone);
+    const RECT region = selection.lastCapture;
     selection.active = false;
     if (GetCapture() == selection.window) ReleaseCapture();
     HWND hwnd = selection.window;
@@ -165,6 +177,7 @@ void Finish(bool accept, wstring error = {}) {
     ClearImage();
     selection.finishing = false;
     if (done) done(move(cropped), point, move(error));
+    if (regionDone) regionDone(region, move(error));
 }
 void DrawSelection(HWND hwnd, HDC target = nullptr) {
     ui::Paint paint(hwnd, target, false);
@@ -229,7 +242,7 @@ void DrawSelection(HWND hwnd, HDC target = nullptr) {
         ui::Border(g, {x, y, labelWidth, labelHeight}, 12 * scale, Color(130, ui::accent.GetR(), ui::accent.GetG(), ui::accent.GetB()));
         ui::Text(g, to_wstring(w) + L" × " + to_wstring(h) + L" px", {x + 14 * scale, y + 10 * scale,
             170 * scale, labelHeight}, 14 * scale, ui::accent, true);
-        ui::Text(g, !selection.active && !IsRectEmpty(&selection.hovered) ? tr("screen.capture.002") : tr("screen.capture.003"),
+        ui::Text(g, !selection.active && !IsRectEmpty(&selection.hovered) ? tr(selection.regionDone ? "record.selector_click" : "screen.capture.002") : tr(selection.regionDone ? "record.selector_release" : "screen.capture.003"),
             {x + 172 * scale, y + 12 * scale, 72 * scale, 24 * scale}, 11 * scale, ui::muted);
     } else {
         const auto hint = HintRect(scale);
@@ -252,7 +265,7 @@ void DrawSelection(HWND hwnd, HDC target = nullptr) {
         }
         ui::Round(g, {16 * scale, 17 * scale, 32 * scale, 32 * scale}, 9 * scale, ui::accent);
         ui::Text(g, L"＋", {19 * scale, 18 * scale, 30 * scale, 28 * scale}, 21 * scale, ui::background, true);
-        ui::Text(g, tr("screen.capture.004"), {62 * scale, 11 * scale, width - 74 * scale, 27 * scale}, 16 * scale, ui::foreground, true);
+        ui::Text(g, tr(selection.regionDone ? "record.select" : "screen.capture.004"), {62 * scale, 11 * scale, width - 74 * scale, 27 * scale}, 16 * scale, ui::foreground, true);
         ui::Text(g, captureWindowSelection ? tr("screen.capture.005") : tr("screen.capture.006"),
             {62 * scale, 37 * scale, width - 74 * scale, 23 * scale}, 11 * scale, ui::muted);
         g.Restore(saved);
@@ -280,8 +293,8 @@ LRESULT CALLBACK SelectionProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
     case WM_PRINTCLIENT: if (selection.image) DrawSelection(hwnd, reinterpret_cast<HDC>(wparam)); return 0;
     case WM_ERASEBKGND: return 1;
     case WM_LBUTTONDOWN:
-        selection.begin = selection.end = CaptureEdgePoint({GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)},
-            selection.desktop.right - selection.desktop.left, selection.desktop.bottom - selection.desktop.top);
+        MovePointer({GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)});
+        selection.begin = selection.end;
         HoverWindow({GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}); selection.dragging = false;
         selection.active = true; SetCapture(hwnd); InvalidateRect(hwnd, nullptr, FALSE); return 0;
     case WM_MOUSEMOVE:
@@ -375,7 +388,7 @@ bool BeginSelection(HINSTANCE instance, CaptureDone done, wstring& error) {
     HoverWindow(selection.end);
     selection.layered = captureAnimation && ui::DecorativeMotion(); selection.alpha = -1; selection.chrome = {};
     selection.window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | (selection.layered ? WS_EX_LAYERED : 0), cls.lpszClassName,
-        tr("screen.capture.013"), WS_POPUP, x, y, width, height, nullptr, nullptr, instance, nullptr);
+        tr(selection.regionDone ? "record.select" : "screen.capture.013"), WS_POPUP, x, y, width, height, nullptr, nullptr, instance, nullptr);
     if (!selection.window) { ClearImage(); selection.done = {}; error = tr("screen.capture.014"); return false; }
     if (selection.layered && !SetLayeredWindowAttributes(selection.window, 0, 1, LWA_ALPHA)) {
         selection.layered = false;
@@ -389,4 +402,11 @@ bool BeginSelection(HINSTANCE instance, CaptureDone done, wstring& error) {
     return true;
 }
 void CancelSelection() { Finish(false); }
+bool BeginRegionSelection(HINSTANCE instance, RegionDone done, wstring& error) {
+    if (selection.window) { error = tr("screen.capture.008"); return false; }
+    selection.regionDone = move(done);
+    const bool ok = BeginSelection(instance, {}, error);
+    if (!ok) selection.regionDone = {};
+    return ok;
+}
 RECT LastCaptureRect() { return selection.lastCapture; }

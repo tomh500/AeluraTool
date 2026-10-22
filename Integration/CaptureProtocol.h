@@ -11,6 +11,11 @@ inline constexpr WPARAM Preview = 3;
 inline constexpr WPARAM Shutdown = 4;
 inline constexpr WPARAM CanCapture = 5;
 inline constexpr WPARAM SetLanguage = 6;
+inline constexpr WPARAM Prepare = 7;
+inline constexpr WPARAM SelectRegion = 8;
+inline constexpr WPARAM CancelRegion = 9;
+inline constexpr ULONG_PTR RegionResultTag = 0xAE105245;
+struct RegionResult { RECT bounds{}; HRESULT error{S_OK}; };
 inline constexpr LRESULT Accepted = 1;
 inline constexpr LRESULT Busy = 2;
 }

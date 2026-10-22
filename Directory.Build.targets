@@ -11,6 +11,8 @@
   <Content Include="$(MSBuildThisFileDirectory)artifacts\x64\$(Configuration)\ScreenShotPlus.Host.exe"><Link>Tools\ScreenShotPlus.Host.exe</Link><DeploymentContent>true</DeploymentContent><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
   <Content Include="$(MSBuildThisFileDirectory)Tools\ScreenShotPlus\LICENSE"><Link>Tools\Licenses\ScreenShotPlus.LICENSE.txt</Link><DeploymentContent>true</DeploymentContent><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
   <Content Include="$(MSBuildThisFileDirectory)Tools\ScreenShotPlus\THIRD_PARTY_NOTICES.md"><Link>Tools\Licenses\THIRD_PARTY_NOTICES.md</Link><DeploymentContent>true</DeploymentContent><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+  <Content Include="$(MSBuildThisFileDirectory)Tools\ScreenRecorder\THIRD_PARTY_NOTICES.md"><Link>Tools\Licenses\ScreenRecorder.NOTICES.md</Link><DeploymentContent>true</DeploymentContent><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+  <Content Include="$(MSBuildThisFileDirectory)Tools\ScreenRecorder\Vendor\amf\LICENSE.txt"><Link>Tools\Licenses\AMF.LICENSE.txt</Link><DeploymentContent>true</DeploymentContent><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
  </ItemGroup>
  <Target Name="CopyCaptureEngine" AfterTargets="Build" Condition="'$(MSBuildProjectName)'=='AeluraTool'"><MakeDir Directories="$(OutDir)Tools;$(OutDir)Tools\StrikeSense"/><Copy SourceFiles="$(MSBuildThisFileDirectory)artifacts\x64\$(Configuration)\ScreenShotPlus.Host.exe" DestinationFolder="$(OutDir)Tools"/><Copy SourceFiles="$(MSBuildThisFileDirectory)artifacts\x64\$(Configuration)\StrikeSense\StrikeSense.exe" DestinationFolder="$(OutDir)Tools\StrikeSense"/></Target>
 </Project>

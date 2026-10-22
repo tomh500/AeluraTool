@@ -82,6 +82,10 @@ try:
     assert name.value == "AeluraTool.ScreenShotPlus.Panel", name.value
     assert not u.GetPropW(hwnd, "ScreenShotPlus.PrimaryInstance"), "Must not impersonate the standalone app"
     assert request(hwnd, 5) == 1, "Idle engine should accept capture"
+    assert request(hwnd, 7) == 1, "Recording must be able to prepare the shared selector without taking a screenshot"
+    assert request(hwnd, 8, 0) == 2, "Region selection must reject an invalid result receiver"
+    assert request(hwnd, 9, 0) == 1, "Canceling an absent recording selector must be harmless"
+    assert request(hwnd, 5) == 1, "Rejected region requests must leave screenshot capture available"
     assert request(hwnd, 6, 2) == 1, "English language update should be acknowledged"
     assert request(hwnd, 6, 1) == 1, "Chinese language update should be acknowledged"
     assert request(hwnd, 999) == 0, "Unknown commands must be rejected"

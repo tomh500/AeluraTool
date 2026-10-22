@@ -19,6 +19,10 @@ try {
     & ".\artifacts\tests\$Configuration\CoreTests.exe" --suite $Suite
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
     if (!$CoreOnly) {
+        & $buildPath Tests\RecordingTests.vcxproj /nologo /v:minimal "/p:Configuration=$Configuration" /p:Platform=x64 /p:VisualStudioVersion=18.0
+        if ($LASTEXITCODE -ne 0) { throw 'Recording test build failed.' }
+        & ".\artifacts\tests\$Configuration\RecordingTests.exe"
+        if ($LASTEXITCODE -ne 0) { throw 'Recording tests failed.' }
         & $buildPath Tests\CaptureSharingTests.vcxproj /nologo /v:minimal "/p:Configuration=$Configuration" /p:Platform=x64 /p:VisualStudioVersion=18.0
         if ($LASTEXITCODE -ne 0) { throw 'Image sharing test build failed.' }
         & ".\artifacts\tests\$Configuration\CaptureSharingTests.exe"

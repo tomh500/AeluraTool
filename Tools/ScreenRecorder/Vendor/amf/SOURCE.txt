@@ -1,0 +1,3 @@
+GPUOpen-LibrariesAndSDKs/AMF
+Commit: 57ee0cfb0e1a08d9041f77435653794c1b012be0
+Source: https://github.com/GPUOpen-LibrariesAndSDKs/AMF/tree/57ee0cfb0e1a08d9041f77435653794c1b012be0

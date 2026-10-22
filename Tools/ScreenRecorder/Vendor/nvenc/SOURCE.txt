@@ -1,0 +1,3 @@
+FFmpeg/nv-codec-headers
+Commit: 71acc268a541f7d7f33cf0387229e3015cfb4977
+Source: https://github.com/FFmpeg/nv-codec-headers/tree/71acc268a541f7d7f33cf0387229e3015cfb4977

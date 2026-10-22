@@ -144,7 +144,10 @@ void run_filesearch_tests(fs::path const& root) {
     preserveResultOrder(visible, incoming);
     check(incoming.size() == 2 && incoming[0].name == L"C renamed" && incoming[1].path == L"C:\\D", "row removal/update lost surviving order");
     HWND window = CreateWindowW(L"STATIC", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
-    aelura::hotkeys::Manager manager; manager.load(window, root / "keys.ini"); std::wstring error; const size_t keyIndex = 6;
+    aelura::hotkeys::Manager manager; manager.load(window, root / "keys.ini"); std::wstring error;
+    auto searchBinding = std::find_if(manager.bindings.begin(), manager.bindings.end(), [](auto const& b) { return b.id == L"filesearch"; });
+    check(searchBinding != manager.bindings.end(), "search hotkey missing");
+    const size_t keyIndex = static_cast<size_t>(searchBinding - manager.bindings.begin());
     check(manager.bindings[keyIndex].id == L"filesearch" && manager.bindings[keyIndex].enabled, "search hotkey default missing");
     check(manager.save(keyIndex, MOD_CONTROL | MOD_ALT, VK_F20, true, error), "search hotkey save failed");
     check(RegisterHotKey(window, 999, MOD_CONTROL | MOD_ALT, VK_F19), "occupancy fixture failed");

@@ -21,6 +21,7 @@ std::wstring progressText(uint64_t done, uint64_t total) {
 }
 }
 bool MainWindow::AcquireFileTask(FileTask task) {
+    if(recordingCloseBusy_)return false;
     // All entry points (including hotkeys) acquire this gate on the UI thread.
     if (fileTask_ != FileTask::None) { Notice(tr("files.busy"), true); fileTaskNotice_ = true; return false; }
     fileTask_ = task; RenderHash(); return true;
@@ -147,6 +148,7 @@ void MainWindow::CopyHash(bool second) {
 }
 fire_and_forget MainWindow::RunHash() {
     auto lifetime = get_strong();
+    if(recordingCloseBusy_)co_return;
     if (fileTask_ != FileTask::None) { Notice(tr("files.busy"), true); fileTaskNotice_ = true; co_return; }
     aelura::hash::Request request;
     request.mode = static_cast<Mode>(HashMode().SelectedIndex());
