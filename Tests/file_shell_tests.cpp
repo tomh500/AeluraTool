@@ -47,6 +47,11 @@ void run_file_shell_tests(fs::path const& root) {
     copy.move = true; copy.sources = {renamed}; check(start(copy), "cut/paste did not start"); wait();
     check(!state().failed && !fs::exists(renamed) && fs::exists(copy.destination / renamed.filename()), "cut/paste failed");
     auto verified = root / L"verified" / L"verify.txt"; write(verified);
+    // Exercise the Shell's long-name callback for a short-name request when
+    // the temporary volume supports 8.3 aliases. This must still verify and move.
+    wchar_t shortSource[32768]{};
+    auto shortLength = GetShortPathNameW(verified.c_str(), shortSource, 32768);
+    if (shortLength && shortLength < 32768) verified = shortSource;
     copy.sources = {verified}; copy.verifyMove = true; copy.recoveryFolder = root / L"recovery";
     check(start(copy), "verified move did not start"); wait();
     check(!state().failed && !state().cancelled && !fs::exists(verified) && fs::exists(copy.destination / verified.filename()) && state().recovery.empty(), "copy-verify-remove move failed");
