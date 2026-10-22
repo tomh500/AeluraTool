@@ -74,7 +74,7 @@ fire_and_forget MainWindow::EditKey(size_t index) {
         UINT k = b.id == L"print" ? VK_SNAPSHOT : values.at(key.SelectedIndex()); std::wstring issue;
         if (!hotkeys_.save(index, modifiers, k, enabled.IsOn(), issue)) { error.Text(issue); args.Cancel(true); }
     });
-    try { co_await dialog.ShowAsync(); RenderKeys(); } catch (hresult_error const& e) { Notice(e.message(), true); }
+    try { co_await dialog.ShowAsync(); RenderKeys(); RefreshAutoClicker(); } catch (hresult_error const& e) { Notice(e.message(), true); }
 }
 void MainWindow::EnsureFileSearchIndex() {
     if (fileSearchIndex_) return;
@@ -103,7 +103,7 @@ void MainWindow::ShowFileSearch() {
     fileSearch_->appearance(Root().RequestedTheme()); fileSearch_->show();
 }
 void MainWindow::ActivateTool(std::wstring const& id) {
-    if (id == L"autoclicker") { ShowAutoClicker(); return; }
+    if (id == L"autoclicker") { RestoreWindow(); Page(7); return; }
     if (id == L"filesearch") { RestoreWindow(); Page(5); }
     else if (id == L"capture") Invoke(1);
     else if (id == L"move") { ShowWindow(hwnd_, SW_RESTORE); SetForegroundWindow(hwnd_); Page(3); }

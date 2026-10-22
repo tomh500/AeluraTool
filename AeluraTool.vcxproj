@@ -127,6 +127,8 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="Integration\ToolCatalog.h" />
     <ClInclude Include="Integration\AutoClicker.h" />
+    <ClInclude Include="Integration\ToggleNotification.h" />
+    <ClInclude Include="Tools\DearM16A4\Timing.h" />
     <ClInclude Include="Integration\HotkeyManager.h" />
     <ClInclude Include="Integration\FileMigration.h" />
     <ClInclude Include="Integration\FileHash.h" />
@@ -162,6 +164,7 @@
   <ItemGroup>
     <ClCompile Include="MainWindow.Tools.cpp" />
     <ClCompile Include="MainWindow.AutoClicker.cpp" />
+    <ClCompile Include="Integration\ToggleNotification.cpp" />
     <ClCompile Include="MainWindow.Hash.cpp" />
     <ClCompile Include="Integration\FileSearchWindow.cpp" />
     <ClCompile Include="Integration\FileSearch.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>

@@ -38,4 +38,6 @@ $shortcut.Arguments = 'shell:AppsFolder\' + $installed.PackageFamilyName + '!App
 $shortcut.WorkingDirectory = $layoutRoot
 $shortcut.IconLocation = (Join-Path $layoutRoot 'AeluraTool.exe') + ',0'
 $shortcut.Save()
+$launcher = '@echo off' + "`r`n" + 'start "" "%SystemRoot%\explorer.exe" "shell:AppsFolder\' + $installed.PackageFamilyName + '!App"' + "`r`n"
+Set-Content -LiteralPath (Join-Path $outputRoot 'Start-AeluraTool.cmd') -Value $launcher -Encoding Ascii
 Write-Output "Deployed $Configuration layout."

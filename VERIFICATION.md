@@ -1,5 +1,16 @@
 # 验证记录
 
+## 1.6.2.0 Clicker 子界面、启停提示与启动排查（2026-10-22）
+
+- AutoClicker 改为游戏分类内的独立子界面，接入返回与历史导航、统一搜索；启停开关与参数编辑分开，运行时锁定参数。快捷键通过 HotkeyManager 直接切换启停，默认 Ctrl+Alt+C，尊重已保存配置并显示注册状态；工具页提供统一快捷键编辑入口。新增持久化“快捷键启停提示”设置，保存失败恢复旧值。
+- 通过本机 Everything64.dll SDK 实际查询 folder: liquidbounce，找到 C:/Users/jingy/source/repos/LiquidBounce。只读检查其 HUD notifications 两个 Svelte 文件，独立实现原生 WinUI 启停提示：状态、模块名、三秒消失、快速切换更新已有提示、无焦点激活、系统动画与主题资源；未复制上游代码/图标，未修改该项目。
+- 按用户指定只读检查 DearM16A4.cpp；该项目仍使用 SendInput，采用扫描码、分开的按下/松开与短暂按住时间，不是驱动方案。将其 180 个数值样本放入 Tools/DearM16A4，来源记录同时随 Tools/Licenses 分发；状态机独立实现，样本归一化后保留用户速率与随机幅度，高速时缩短按住时间，松开/停用/切换窗口时配对释放。工具箱自身前台不捕获触发键。未修改原项目。
+- Debug/Release 构建、最终 Release 签名打包通过，两配置完整 scripts/test.ps1 通过，涵盖迁移、搜索、快捷键失败回滚、录屏、图片共享和截图通信。新增样本边界、零随机幅度、15–24ms/高速按住时间以及扫描码和鼠标输入配对的无输入单元检查。659 对资源、613 处静态引用检查通过；符号链接夹具仍因权限错误 1314 跳过。没有通过测试向真实应用发送点击。
+- 首次 Computer Use 测试直接启动 Debug/AppX-1.6.2.0/AeluraTool.exe，出现 CRT abort；用户按 Esc 后停止桌面操作，未再调用 Computer Use。之后后台采集该测试进程调用栈，确认在 Windows App SDK DeploymentManager 静态初始化获取工厂时抛错，早于应用入口；该失败进程没有包身份，不属于已证实的 Clicker 初始化异常。
+- 后台使用 IApplicationActivationManager 经实际包 AUMID 传 --startup 启动 Debug，进程持续运行，枚举确认 AeluraTool.MainWindow 标记存在且窗口隐藏，未出现 CRT 错误。只结束了本轮创建的失败/探测进程，不操作用户游戏和 DearM16A4。应用层启动异常增加诊断记录；此处理不能捕获 SDK 的主函数前静态初始化错误。部署目录增加 Start-AeluraTool.cmd 包激活入口，直接 EXE 启动仍不受支持。
+- 最终本机注册为 Release/AppX-1.6.2.0，桌面快捷方式保持 shell:AppsFolder 包身份启动，工作目录和图标指向该版本；部署 EXE 与最终 Release 构建哈希一致。生成签名分发 AeluraTool-1.6.2.0-x64-20261022-220006.zip，安装脚本 CheckOnly 通过。没有实际弹 UAC、重新信任证书或在干净机器安装。
+- 仍未完成新子界面的可见布局、主题切换、快捷键真实启停、提示进出动画、设置交互和真实游戏点击的 UI/硬件验收；不能将隐藏包启动或静态检查记为这些交互通过。日志：artifacts/clicker-page-final-debug.log、clicker-page-build-release.log、clicker-page-distribution.log、clicker-page-tests-debug.log、clicker-page-tests-release.log、clicker-startup-stack.txt。用户 BUILD_AND_DISTRIBUTE.md 修改保留。
+
 ## 1.6.1.0 分发安装向导与本机部署（2026-10-22）
 
 - Debug 解决方案构建与签名 Release 打包构建通过；两种配置的 scripts/test.ps1 全套通过，包含迁移、搜索、快捷键失败回滚、AutoClicker 参数、录屏、图片共享及截图通信。647 对资源键及 606 处静态引用检查通过，PowerShell 脚本语法解析通过。符号链接夹具仍因权限错误 1314 跳过。

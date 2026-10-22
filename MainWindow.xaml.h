@@ -7,6 +7,7 @@
 #include "Integration/DesktopLifecycle.h"
 #include "Integration/HotkeyManager.h"
 #include "Integration/AutoClicker.h"
+#include "Integration/ToggleNotification.h"
 #include "Integration/FileHash.h"
 #include "Integration/RecordingPanel.h"
 #include "Integration/FileSearchWindow.h"
@@ -25,8 +26,14 @@ namespace winrt::AeluraTool::implementation {
         DWORD pid_{};
         aelura::hotkeys::Manager hotkeys_;
         aelura::autoclicker::Engine autoClicker_;
-        winrt::fire_and_forget ShowAutoClicker();
-        bool autoClickerDialog_{};
+        void SetupAutoClicker();
+        void LocalizeAutoClicker();
+        void RefreshAutoClicker();
+        bool SaveAutoClicker();
+        void ToggleAutoClicker(bool hotkey = false);
+        bool autoClickerUpdating_{}, hotkeyNotifications_{true};
+        aelura::autoclicker::Options autoClickerOptions_;
+        std::unique_ptr<aelura::notifications::ToggleNotification> toggleNotification_;
         Microsoft::UI::Dispatching::DispatcherQueueTimer autoClickerTimer_{nullptr};
         std::unique_ptr<aelura::filesearch::SearchWindow> fileSearch_;
         std::unique_ptr<aelura::filesearch::SearchWindow> fileSearchPage_;

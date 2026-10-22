@@ -9,6 +9,7 @@ using namespace Microsoft::UI::Xaml;
 namespace winrt::AeluraTool::implementation {
 using aelura::i18n::tr;
 void MainWindow::ApplyLanguage() {
+    if(toggleNotification_)toggleNotification_->close();
     if (fileSearch_) fileSearch_->localize();
     if (fileSearchPage_) fileSearchPage_->localize();
     localizing_ = true;
@@ -20,6 +21,7 @@ void MainWindow::ApplyLanguage() {
         Controls::ToolTipService::SetToolTip(button, box_value(tr("nav.back_hint")));
     }
     LocalizeLifecycle();
+    LocalizeAutoClicker();
     Automation::AutomationProperties::SetName(HistoryBackButton(), tr("nav.back"));
     Controls::ToolTipService::SetToolTip(HistoryBackButton(), box_value(tr("nav.back_hint")));
     Localized1().Text(tr("app.brand"));

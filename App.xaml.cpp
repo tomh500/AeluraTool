@@ -64,9 +64,17 @@ namespace winrt::AeluraTool::implementation
             auto config = std::filesystem::path(local) / L"AeluraTool" / L"hotkeys.ini"; CoTaskMemFree(local);
             if (aelura::privileges::requestAutomatic(nullptr, config, startupActivation)) { Exit(); co_return; }
         }
-        auto main = make<MainWindow>();
-        window = main;
-        get_self<MainWindow>(main)->Setup(startupActivation);
-        if (get_self<MainWindow>(main)->Ready()) get_self<MainWindow>(main)->ShowInitial();
+        try {
+            auto main = make<MainWindow>();
+            window = main;
+            get_self<MainWindow>(main)->Setup(startupActivation);
+            if (get_self<MainWindow>(main)->Ready()) get_self<MainWindow>(main)->ShowInitial();
+        } catch (hresult_error const& error) {
+            aelura::diagnostics::failure("app.startup", error.code(), error.message());
+            Exit();
+        } catch (std::exception const& error) {
+            aelura::diagnostics::failure("app.startup.native", E_FAIL, to_hstring(error.what()));
+            Exit();
+        }
     }
 }

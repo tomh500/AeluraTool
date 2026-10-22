@@ -6,64 +6,72 @@ using namespace winrt;
 using namespace Microsoft::UI::Xaml;
 using namespace Microsoft::UI::Xaml::Controls;
 namespace winrt::AeluraTool::implementation {
-fire_and_forget MainWindow::ShowAutoClicker() {
-    if(autoClickerDialog_)co_return;
-    auto lifetime=get_strong(); autoClickerDialog_=true;
-    if(autoClickerTimer_)autoClickerTimer_.Stop();
-    autoClicker_.stop(); RestoreWindow();
-    using aelura::i18n::tr;
-    try {
-        ContentDialog dialog; dialog.XamlRoot(Root().XamlRoot()); dialog.RequestedTheme(Root().RequestedTheme());
-        dialog.Title(box_value(tr("autoclicker.title"))); dialog.PrimaryButtonText(tr("autoclicker.enable")); dialog.CloseButtonText(tr("autoclicker.keep_disabled"));
-        StackPanel panel; panel.Spacing(12);
-        TextBlock hint; hint.Text(tr("autoclicker.hint")); hint.TextWrapping(TextWrapping::Wrap); panel.Children().Append(hint);
-        const std::vector<UINT> mouse{VK_LBUTTON,VK_RBUTTON,VK_MBUTTON,VK_XBUTTON1,VK_XBUTTON2};
-        std::vector<UINT> targets=mouse; for(UINT k='A';k<='Z';++k)targets.push_back(k); for(UINT k='0';k<='9';++k)targets.push_back(k); for(UINT k=VK_F1;k<=VK_F24;++k)targets.push_back(k);
-        const char* names[]{"autoclicker.left","autoclicker.right","autoclicker.middle","autoclicker.side1","autoclicker.side2"};
-        auto read=[&](wchar_t const* key,int fallback){return GetPrivateProfileIntW(L"AutoClicker",key,fallback,config_.c_str());};
-        ComboBox trigger,target; trigger.Header(box_value(tr("autoclicker.trigger"))); target.Header(box_value(tr("autoclicker.target")));
-        trigger.HorizontalAlignment(HorizontalAlignment::Stretch); target.HorizontalAlignment(HorizontalAlignment::Stretch);
-        for(size_t i=0;i<targets.size();++i) {
-            auto k=targets[i]; std::wstring label=i<5 ? tr(names[i]) : k>=VK_F1 ? L"F"+std::to_wstring(k-VK_F1+1) : std::wstring(1,static_cast<wchar_t>(k));
-            target.Items().Append(box_value(label)); if(i<5)trigger.Items().Append(box_value(label));
-        }
-        trigger.SelectedIndex(3); target.SelectedIndex(0);
-        for(size_t i=0;i<mouse.size();++i)if(mouse[i]==static_cast<UINT>(read(L"Trigger",VK_XBUTTON1)))trigger.SelectedIndex(static_cast<int>(i));
-        for(size_t i=0;i<targets.size();++i)if(targets[i]==static_cast<UINT>(read(L"Target",VK_LBUTTON)))target.SelectedIndex(static_cast<int>(i));
-        panel.Children().Append(trigger); panel.Children().Append(target);
-        NumberBox rate,jitter; rate.Header(box_value(tr("autoclicker.rate")));rate.Minimum(1);rate.Maximum(100);rate.Value(read(L"Rate",10));
-        jitter.Header(box_value(tr("autoclicker.jitter")));jitter.Minimum(0);jitter.Maximum(90);jitter.Value(read(L"Jitter",10));
-        panel.Children().Append(rate);panel.Children().Append(jitter);
-        TextBlock error;error.TextWrapping(TextWrapping::Wrap);panel.Children().Append(error);dialog.Content(panel);
-        dialog.PrimaryButtonClick([&](auto const&,ContentDialogButtonClickEventArgs const& args){
-            if(!std::isfinite(rate.Value()) || !std::isfinite(jitter.Value()) || trigger.SelectedIndex()<0 || target.SelectedIndex()<0) {error.Text(tr("autoclicker.invalid"));args.Cancel(true);return;}
-            aelura::autoclicker::Options options{mouse.at(trigger.SelectedIndex()),targets.at(target.SelectedIndex()),static_cast<int>(rate.Value()),static_cast<int>(jitter.Value())};
-            if(!aelura::autoclicker::valid(options)){error.Text(tr("autoclicker.invalid"));args.Cancel(true);return;}
-            // Replace the whole configuration file only after every write succeeds.
-            std::error_code ec;std::filesystem::create_directories(config_.parent_path(),ec);auto temporary=config_;temporary+=L".autoclicker.tmp";
-            bool ok=!ec;
-            if(ok && std::filesystem::exists(config_,ec))ok=CopyFileW(config_.c_str(),temporary.c_str(),FALSE)!=0;
-            if(ok) {
-                std::wstring section=L"Trigger="+std::to_wstring(options.trigger)+L'\0'+L"Target="+std::to_wstring(options.target)+L'\0'+L"Rate="+std::to_wstring(options.rate)+L'\0'+L"Jitter="+std::to_wstring(options.jitter)+L'\0';section+=L'\0';
-                ok=WritePrivateProfileSectionW(L"AutoClicker",section.c_str(),temporary.c_str())!=0;
-                WritePrivateProfileStringW(nullptr,nullptr,nullptr,temporary.c_str());
-                if(ok)ok=MoveFileExW(temporary.c_str(),config_.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0;
-            }
-            if(!ok){DeleteFileW(temporary.c_str());error.Text(tr("error.preference_save"));args.Cancel(true);return;}
-            if(!autoClicker_.start(options)){error.Text(tr("autoclicker.failed"));args.Cancel(true);}
-        });
-        co_await dialog.ShowAsync();
-        if(autoClicker_.running()) {
-            Notice(tr("autoclicker.enabled"));
-            if(!autoClickerTimer_) {
-                autoClickerTimer_=DispatcherQueue().CreateTimer();autoClickerTimer_.Interval(std::chrono::milliseconds(200));
-                autoClickerTimer_.Tick([weak=get_weak()](auto const&,auto const&){if(auto self=weak.get())if(!self->autoClicker_.running()) {
-                    self->autoClickerTimer_.Stop();self->Notice(tr(self->autoClicker_.failed()?"autoclicker.input_failed":"autoclicker.stopped"),self->autoClicker_.failed());
-                }});
-            }
-            autoClickerTimer_.Start();
-        }
-    } catch(hresult_error const& e){Notice(e.message(),true);}
-    autoClickerDialog_=false;
+using aelura::i18n::tr;
+namespace {
+const std::vector<UINT> mouseKeys{VK_LBUTTON,VK_RBUTTON,VK_MBUTTON,VK_XBUTTON1,VK_XBUTTON2};
+std::vector<UINT> outputKeys() {auto keys=mouseKeys;for(UINT k='A';k<='Z';++k)keys.push_back(k);for(UINT k='0';k<='9';++k)keys.push_back(k);for(UINT k=VK_F1;k<=VK_F24;++k)keys.push_back(k);return keys;}
+}
+void MainWindow::SetupAutoClicker() {
+    auto read=[&](wchar_t const* key,int fallback){return GetPrivateProfileIntW(L"AutoClicker",key,fallback,config_.c_str());};
+    autoClickerOptions_={static_cast<UINT>(read(L"Trigger",VK_XBUTTON1)),static_cast<UINT>(read(L"Target",'K')),static_cast<int>(read(L"Rate",10)),static_cast<int>(read(L"Jitter",10))};
+    if(!aelura::autoclicker::valid(autoClickerOptions_))autoClickerOptions_=aelura::autoclicker::Options{};
+    toggleNotification_=std::make_unique<aelura::notifications::ToggleNotification>(hwnd_);
+    hotkeyNotifications_=GetPrivateProfileIntW(L"Behavior",L"HotkeyNotifications",1,config_.c_str())!=0;
+    HotkeyNotificationsSwitch().IsOn(hotkeyNotifications_);
+    HotkeyNotificationsSwitch().Toggled([this](auto const&,auto const&){if(localizing_)return;auto requested=HotkeyNotificationsSwitch().IsOn();if(SaveBehavior(L"HotkeyNotifications",requested)){hotkeyNotifications_=requested;if(!requested&&toggleNotification_)toggleNotification_->close();}else{localizing_=true;HotkeyNotificationsSwitch().IsOn(hotkeyNotifications_);localizing_=false;}});
+    AutoClickerBackButton().Click([this](auto const&,auto const&){GoBack();});
+    AutoClickerSwitch().Toggled([this](auto const&,auto const&){if(!autoClickerUpdating_)ToggleAutoClicker();});
+    AutoClickerSave().Click([this](auto const&,auto const&){if(SaveAutoClicker())Notice(tr("autoclicker.saved"));});
+    AutoClickerEditShortcut().Click([this](auto const&,auto const&){for(size_t i=0;i<hotkeys_.bindings.size();++i)if(hotkeys_.bindings[i].id==L"autoclicker"){EditKey(i);break;}});
+    autoClickerTimer_=DispatcherQueue().CreateTimer();autoClickerTimer_.Interval(std::chrono::milliseconds(100));
+    autoClickerTimer_.Tick([this](auto const&,auto const&){if(!autoClicker_.running()){autoClickerTimer_.Stop();RefreshAutoClicker();if(autoClicker_.failed())Notice(tr("autoclicker.input_failed"),true);else Notice(tr("autoclicker.stopped"));}});
+}
+void MainWindow::LocalizeAutoClicker() {
+    autoClickerUpdating_=true;
+    UINT selectedTrigger=autoClickerOptions_.trigger,selectedTarget=autoClickerOptions_.target;
+    auto targets=outputKeys();
+    if(AutoClickerTrigger().SelectedIndex()>=0)selectedTrigger=mouseKeys.at(AutoClickerTrigger().SelectedIndex());
+    if(AutoClickerTarget().SelectedIndex()>=0)selectedTarget=targets.at(AutoClickerTarget().SelectedIndex());
+    AutoClickerTrigger().Items().Clear();AutoClickerTarget().Items().Clear();
+    const char* names[]{"autoclicker.left","autoclicker.right","autoclicker.middle","autoclicker.side1","autoclicker.side2"};
+    for(size_t i=0;i<targets.size();++i){auto k=targets[i];std::wstring label=i<5?tr(names[i]):k>=VK_F1?L"F"+std::to_wstring(k-VK_F1+1):std::wstring(1,static_cast<wchar_t>(k));AutoClickerTarget().Items().Append(box_value(label));if(i<5)AutoClickerTrigger().Items().Append(box_value(label));}
+    for(size_t i=0;i<mouseKeys.size();++i)if(mouseKeys[i]==selectedTrigger)AutoClickerTrigger().SelectedIndex(static_cast<int>(i));
+    for(size_t i=0;i<targets.size();++i)if(targets[i]==selectedTarget)AutoClickerTarget().SelectedIndex(static_cast<int>(i));
+    if(!std::isfinite(AutoClickerRate().Value()))AutoClickerRate().Value(autoClickerOptions_.rate);
+    if(!std::isfinite(AutoClickerJitter().Value()))AutoClickerJitter().Value(autoClickerOptions_.jitter);
+    AutoClickerBackLabel().Text(tr("nav.back"));AutoClickerHint().Text(tr("autoclicker.page_hint"));
+    AutoClickerParametersTitle().Text(tr("autoclicker.parameters"));AutoClickerTrigger().Header(box_value(tr("autoclicker.trigger")));AutoClickerTarget().Header(box_value(tr("autoclicker.target")));
+    AutoClickerRate().Header(box_value(tr("autoclicker.rate")));AutoClickerJitter().Header(box_value(tr("autoclicker.jitter")));AutoClickerSave().Content(box_value(tr("common.save")));
+    AutoClickerShortcutTitle().Text(tr("autoclicker.toggle"));AutoClickerEditShortcut().Content(box_value(tr("common.edit")));
+    AutoClickerSwitch().OnContent(box_value(tr("common.enabled")));AutoClickerSwitch().OffContent(box_value(tr("common.disabled")));
+    HotkeyNotificationsSwitch().Header(box_value(tr("settings.hotkey_notifications")));HotkeyNotificationsHint().Text(tr("settings.hotkey_notifications_hint"));
+    HotkeyNotificationsSwitch().OnContent(box_value(tr("common.enabled")));HotkeyNotificationsSwitch().OffContent(box_value(tr("common.disabled")));
+    autoClickerUpdating_=false;RefreshAutoClicker();
+}
+void MainWindow::RefreshAutoClicker() {
+    autoClickerUpdating_=true;bool enabled=autoClicker_.running();AutoClickerSwitch().IsOn(enabled);
+    AutoClickerStateTitle().Text(tr(enabled?"autoclicker.state_on":"autoclicker.state_off"));AutoClickerStateHint().Text(tr(enabled?"autoclicker.state_on_hint":"autoclicker.state_off_hint"));
+    AutoClickerTrigger().IsEnabled(!enabled);AutoClickerTarget().IsEnabled(!enabled);AutoClickerRate().IsEnabled(!enabled);AutoClickerJitter().IsEnabled(!enabled);AutoClickerSave().IsEnabled(!enabled);
+    for(auto const& binding:hotkeys_.bindings)if(binding.id==L"autoclicker")AutoClickerShortcutState().Text(aelura::hotkeys::label(binding)+L" 路 "+tr(!binding.enabled?"common.disabled":binding.registered?"common.enabled":"common.occupied"));
+    autoClickerUpdating_=false;
+}
+bool MainWindow::SaveAutoClicker() {
+    if(autoClicker_.running())return false;
+    if(!std::isfinite(AutoClickerRate().Value())||!std::isfinite(AutoClickerJitter().Value())||AutoClickerTrigger().SelectedIndex()<0||AutoClickerTarget().SelectedIndex()<0){Notice(tr("autoclicker.invalid"),true);return false;}
+    aelura::autoclicker::Options options{mouseKeys.at(AutoClickerTrigger().SelectedIndex()),outputKeys().at(AutoClickerTarget().SelectedIndex()),static_cast<int>(AutoClickerRate().Value()),static_cast<int>(AutoClickerJitter().Value())};
+    if(!aelura::autoclicker::valid(options)){Notice(tr("autoclicker.invalid"),true);return false;}
+    std::error_code ec;std::filesystem::create_directories(config_.parent_path(),ec);auto temp=config_;temp+=L".autoclicker.tmp";bool ok=!ec;
+    if(ok&&std::filesystem::exists(config_,ec))ok=CopyFileW(config_.c_str(),temp.c_str(),FALSE)!=0;else if(ok)DeleteFileW(temp.c_str());
+    if(ok){std::wstring section=L"Trigger="+std::to_wstring(options.trigger)+L'\0'+L"Target="+std::to_wstring(options.target)+L'\0'+L"Rate="+std::to_wstring(options.rate)+L'\0'+L"Jitter="+std::to_wstring(options.jitter)+L'\0';section+=L'\0';ok=WritePrivateProfileSectionW(L"AutoClicker",section.c_str(),temp.c_str())!=0;WritePrivateProfileStringW(nullptr,nullptr,nullptr,temp.c_str());if(ok)ok=MoveFileExW(temp.c_str(),config_.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0;}
+    if(!ok){DeleteFileW(temp.c_str());Notice(tr("error.preference_save"),true);return false;}
+    autoClickerOptions_=options;return true;
+}
+void MainWindow::ToggleAutoClicker(bool hotkey) {
+    bool requested=!autoClicker_.running();
+    if(requested){if(!SaveAutoClicker()){RefreshAutoClicker();return;}if(!autoClicker_.start(autoClickerOptions_,hwnd_)){Notice(tr("autoclicker.failed"),true);RefreshAutoClicker();return;}autoClickerTimer_.Start();}
+    else{autoClicker_.stop();autoClickerTimer_.Stop();}
+    RefreshAutoClicker();
+    if(!hotkey)Notice(tr(requested?"autoclicker.enabled":"autoclicker.stopped"));
+    if((!hotkey||hotkeyNotifications_)&&toggleNotification_)toggleNotification_->show(tr("autoclicker.title"),requested,Root().RequestedTheme());
 }
 }

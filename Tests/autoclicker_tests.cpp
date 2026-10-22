@@ -20,6 +20,20 @@ void run_autoclicker_tests() {
     o=Options{};o.jitter=-1;require(!valid(o));o.jitter=91;require(!valid(o));
     o=Options{};o.trigger='A';require(!valid(o));o=Options{};o.target=VK_SHIFT;require(!valid(o));
     o.target='A';require(valid(o));o.target=VK_F24;require(valid(o));
+    o=Options{};
+    for(size_t i=0;i<samples.size();++i)for(double noise:{-3.0,0.0,3.0}) {
+        auto period=sampleInterval(o,i,noise);
+        require(period>=interval(o,-1)&&period<=interval(o,1));
+        require(pressDuration(period,0)>0 && pressDuration(period,9)<period);
+        o.jitter=0;require(sampleInterval(o,i,noise)==1000.0/o.rate);o.jitter=10;
+    }
+    auto keyboardDown=inputPacket('K',false,GetKeyboardLayout(0)),keyboardUp=inputPacket('K',true,GetKeyboardLayout(0));
+    require(keyboardDown.type==INPUT_KEYBOARD&&keyboardDown.ki.wVk==0&&keyboardDown.ki.wScan!=0);
+    require(keyboardDown.ki.dwFlags==KEYEVENTF_SCANCODE&&keyboardUp.ki.dwFlags==(KEYEVENTF_SCANCODE|KEYEVENTF_KEYUP));
+    require(keyboardDown.ki.wScan==keyboardUp.ki.wScan);
+    auto mouseDown=inputPacket(VK_XBUTTON2,false,nullptr),mouseUp=inputPacket(VK_XBUTTON2,true,nullptr);
+    require(mouseDown.type==INPUT_MOUSE&&mouseDown.mi.mouseData==XBUTTON2&&mouseDown.mi.dwFlags==MOUSEEVENTF_XDOWN&&mouseUp.mi.dwFlags==MOUSEEVENTF_XUP);
+    require(pressDuration(100,0)==15&&pressDuration(100,9)==24&&pressDuration(10,9)==4.5);
     Engine engine;require(!engine.running());o.rate=0;require(!engine.start(o));require(!engine.running());engine.stop();engine.stop();
     std::cout<<"PASS: AutoClicker trigger/target validation, rate/jitter bounds, interval extrema and disabled lifecycle (no input emitted)\n";
 }

@@ -26,7 +26,7 @@ void Manager::load(HWND hwnd, std::filesystem::path path) {
         {L"record", tr("record.hotkey"), tr("nav.images"), MOD_CONTROL | MOD_ALT, 'R', false},
         {L"replay-save", tr("record.save_replay"), tr("nav.images"), MOD_CONTROL | MOD_ALT | MOD_SHIFT, 'F', true},
         {L"filesearch", tr("filesearch.title"), tr("nav.files"), MOD_CONTROL | MOD_ALT, 'F', true},
-        {L"autoclicker", tr("autoclicker.title"), tr("nav.games"), MOD_CONTROL | MOD_ALT, 'C', false}};
+        {L"autoclicker", tr("autoclicker.toggle"), tr("nav.games"), MOD_CONTROL | MOD_ALT, 'C', true}};
     for (size_t i = 0; i < bindings.size(); ++i) {
         auto& b = bindings[i]; b.slot = 200 + static_cast<int>(i) * 2;
         const auto section = L"Hotkey." + b.id;
@@ -75,7 +75,7 @@ void Manager::localize() {
     for (auto& binding : bindings) {
         const char* title = binding.id == L"capture" ? "capture.start" : binding.id == L"preview" ? "capture.recent" :
             binding.id == L"move" ? "keys.move" : binding.id == L"strike" ? "keys.strike" : binding.id == L"hash" ? "keys.hash" :
-            binding.id == L"autoclicker" ? "autoclicker.title" : binding.id == L"record" ? "record.hotkey" : binding.id == L"replay-save" ? "record.save_replay" : binding.id == L"filesearch" ? "filesearch.title" : "keys.print";
+            binding.id == L"autoclicker" ? "autoclicker.toggle" : binding.id == L"record" ? "record.hotkey" : binding.id == L"replay-save" ? "record.save_replay" : binding.id == L"filesearch" ? "filesearch.title" : "keys.print";
         binding.title = tr(title);
         binding.category = i18n::category(binding.id == L"move" || binding.id == L"hash" || binding.id == L"filesearch" ? 2 : binding.id == L"strike" || binding.id == L"autoclicker" ? 3 : 1);
     }

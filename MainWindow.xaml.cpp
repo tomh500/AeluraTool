@@ -34,7 +34,7 @@ using aelura::i18n::tr;
         Status().IsOpen(true); Status().Message(message); Status().Severity(error ? InfoBarSeverity::Error : InfoBarSeverity::Success);
     }
     void MainWindow::GoBack() {
-        if (page_ != 3 && page_ != 4 && page_ != 5 && page_ != 6) return;
+        if (page_ != 3 && page_ != 4 && page_ != 5 && page_ != 6 && page_ != 7) return;
         navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
         auto previous = toolReturn_.value_or(NavigationEntry{0, 2, L""}); toolReturn_.reset();
         restoringNavigation_ = true;
@@ -59,7 +59,7 @@ using aelura::i18n::tr;
         const int nextCategory = category < 0 ? category_ : category;
         if (remember && (index != page_ || nextCategory != category_))
             navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
-        if (remember && (index == 3 || index == 4 || index == 5 || index == 6) && page_ != 3 && page_ != 4 && page_ != 5 && page_ != 6)
+        if (remember && (index == 3 || index == 4 || index == 5 || index == 6 || index == 7) && page_ != 3 && page_ != 4 && page_ != 5 && page_ != 6 && page_ != 7)
             toolReturn_ = NavigationEntry{page_, category_, Search().Text()};
         category_ = nextCategory;
         page_ = index;
@@ -69,6 +69,7 @@ using aelura::i18n::tr;
         PreferencesPage().Visibility(index == 2 ? Visibility::Visible : Visibility::Collapsed);
         MovePage().Visibility(index == 3 ? Visibility::Visible : Visibility::Collapsed);
         HashPage().Visibility(index == 4 ? Visibility::Visible : Visibility::Collapsed);
+        AutoClickerPage().Visibility(index == 7 ? Visibility::Visible : Visibility::Collapsed);
         RecordingPage().Visibility(index == 6 ? Visibility::Visible : Visibility::Collapsed);
         FileSearchPage().Visibility(index == 5 ? Visibility::Visible : Visibility::Collapsed);
         if (index == 5) {
@@ -80,14 +81,14 @@ using aelura::i18n::tr;
             fileSearchPage_->show();
         } else if (fileSearchPage_) fileSearchPage_->hide();
         const wchar_t* categories[] = {tr("nav.all"), tr("nav.images"), tr("nav.files"), tr("nav.games")};
-        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 6 ? tr("record.title") : index == 5 ? tr("filesearch.title") : index == 4 ? tr("hash.title") : tr("move.title"));
-        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 6 ? tr("record.description") : index == 5 ? tr("filesearch.description") : index == 4 ? tr("hash.description") : tr("move.description"));
+        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 7 ? tr("autoclicker.title") : index == 6 ? tr("record.title") : index == 5 ? tr("filesearch.title") : index == 4 ? tr("hash.title") : tr("move.title"));
+        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 7 ? tr("autoclicker.description") : index == 6 ? tr("record.description") : index == 5 ? tr("filesearch.description") : index == 4 ? tr("hash.description") : tr("move.description"));
         ResultCount().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
         auto standard = Application::Current().Resources().Lookup(box_value(L"DefaultButtonStyle")).as<Style>();
         auto selected = Root().Resources().Lookup(box_value(L"NavigationSelected")).as<Style>();
         ImageNav().Style(((index == 0 && category_ == 1) || index == 6) ? selected : standard);
         FilesNav().Style((index == 0 && category_ == 2) || index == 3 || index == 4 || index == 5 ? selected : standard);
-        GamesNav().Style(index == 0 && category_ == 3 ? selected : standard);
+        GamesNav().Style((index == 0 && category_ == 3) || index == 7 ? selected : standard);
         KeysNav().Style(index == 1 ? selected : standard); PreferencesNav().Style(index == 2 ? selected : standard);
         if (index == 0) RenderTools(); if (index == 1) RenderKeys(); if (index == 4) RenderHash();
         if (index == 2 && ready_) StartupSetting();
@@ -134,6 +135,7 @@ using aelura::i18n::tr;
             if (ec || !WritePrivateProfileStringW(L"Appearance", L"Theme", std::to_wstring(selected).c_str(), config_.c_str())) {
                 Notice(tr("error.theme_save"), true); return;
             }
+            if(toggleNotification_)toggleNotification_->close();
             Root().RequestedTheme(static_cast<ElementTheme>(selected));if(recording_)recording_->theme(Root().RequestedTheme());
             if (fileSearch_) fileSearch_->appearance(Root().RequestedTheme());
         });
@@ -189,7 +191,7 @@ using aelura::i18n::tr;
         recording_ = std::make_unique<aelura::recording::Panel>(hwnd_,config_.parent_path()/L"recording.json",[this]{RestoreWindow();Page(6);if(recording_&&!recording_->busy())Status().IsOpen(false);},[this]{auto host=EngineWindow();if(!host&&!pending_)Invoke(capture::Prepare);return host;});
         RecordingHost().Content(recording_->content());recording_->theme(Root().RequestedTheme());
         RecordingBackButton().Click([this](auto const&,auto const&){GoBack();});
-        SetupHash(); SetupLifecycle(); ApplyLanguage(); ready_ = true;
+        SetupAutoClicker(); SetupHash(); SetupLifecycle(); ApplyLanguage(); ready_ = true;
         timer_ = DispatcherQueue().CreateTimer(); timer_.Interval(std::chrono::milliseconds(100));
         timer_.Tick([this](auto const&, auto const&) {
             if (HWND engine = EngineWindow()) {
@@ -278,7 +280,7 @@ using aelura::i18n::tr;
             if(self->recordingCloseBusy_ || self->elevationBusy_)return 0;
             self->FinishStartup();
             for (auto const& b : self->hotkeys_.bindings) if (b.registered && wp == static_cast<WPARAM>(b.slot)) {
-                if(b.id==L"record")self->recording_->toggle();else if(b.id==L"replay-save")self->recording_->replaySave();
+                if(b.id==L"autoclicker")self->ToggleAutoClicker(true);else if(b.id==L"record")self->recording_->toggle();else if(b.id==L"replay-save")self->recording_->replaySave();
                 else if (b.id == L"filesearch") self->ShowFileSearch(); else if (b.id == L"print") self->Invoke(1); else if (b.id == L"preview") self->Invoke(3); else self->ActivateTool(b.id);
                 return 0;
             }
@@ -286,6 +288,7 @@ using aelura::i18n::tr;
         if (msg == WM_DESTROY) {
             if(self->autoClickerTimer_)self->autoClickerTimer_.Stop();
             self->autoClicker_.stop();
+            if(self->toggleNotification_)self->toggleNotification_->close();
             if (self->fileSearch_) self->fileSearch_->close();
             if (self->fileSearchPage_) self->fileSearchPage_->close();
             self->tray_.Remove();

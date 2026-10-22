@@ -122,6 +122,7 @@ fire_and_forget MainWindow::Elevate() {
     if (fileTask_ != FileTask::None || aelura::files::active() || closeDialogOpen_ || startupBusy_ || recordingCloseBusy_ || (recording_ && recording_->busy())) { Notice(tr("privilege.wait"), true); co_return; }
     auto lifetime = get_strong(); elevationBusy_ = true;
     autoClicker_.stop();
+    if(toggleNotification_)toggleNotification_->close();
     Root().IsHitTestVisible(false); if (fileSearch_) fileSearch_->hide();
     winrt::apartment_context ui;
     const auto owner = hwnd_;
