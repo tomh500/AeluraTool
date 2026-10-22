@@ -1,5 +1,13 @@
 # 验证记录
 
+## ROCCAT VirtualHID 授权安装与通信验证（2026-10-22）
+
+- 经用户明确授权，完成本机 ROCCAT 模块、签名和静态反汇编检查，使用 Windows SetupAPI/NewDev 安装厂商原始签名 VirtualHID。没有执行未签名 devcon、改写驱动或处理固件。
+- 新增根虚拟设备，服务 VirtualHID Running，问题码 0，驱动存储 oem15.inf；安装 SYS 与原文件哈希相同。安装器请求重启，本轮未重启。物理接口仍为 kbdhid/keyboard.inf。
+- 实际厂商报告回环通过：写入 65 字节，收到 33 字节，标记逐字节相同。未发送真实键鼠报告、向游戏点击或改变鼠标配置。不能将此项视作驱动 AutoClicker 的输入或游戏验收。
+- 研究结论和恢复信息见 Docs/RoccatDriverFeasibility.md，安装状态保留，未卸载。产品后端未修改，未复制厂商二进制到分发包。本轮仅新增研究文档，不构建或更新快捷方式；程序仍为 1.6.3.2。保留用户 BUILD_AND_DISTRIBUTE.md 修改。
+
+
 ## 1.6.3.2 每个快捷键独立提示选项（2026-10-22）
 
 - Binding 新增 notify 布尔值，每项保存在 Hotkey.<id>/Notify。没有单项配置时截图、PrintScreen、截图预览、录屏和重放保存默认 false，其他快捷键默认 true；已有单项设置优先。编辑快捷键可独立开关“触发时显示提示”，列表显示该项状态；总开关与单项开关均为 true 才显示快捷键弹窗。
