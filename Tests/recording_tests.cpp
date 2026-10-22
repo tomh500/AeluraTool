@@ -53,8 +53,14 @@ void memoryTests(fs::path const& root){
         if(codec==Codec::HEVC&&mode==Encoder::CPU)continue;
         Options o;o.systemAudio=false;o.directory=root;o.encoder=mode;o.codec=codec;o.bitrate=1500000;auto budget=std::make_shared<media::MemoryBudget>(16*1048576);auto file=std::make_shared<media::MemoryFile>(budget);
         media::Microphone audio(false);audio.rate=48000;audio.channels=2;
-        {media::Writer writer(o,320,240,audio,{},nullptr,nullptr,file.get());std::vector<BYTE> pixels(320*240*3/2,128);std::fill(pixels.begin(),pixels.begin()+320*240,BYTE(80));
-            for(unsigned frame=0;frame<30;++frame){writer.frame(pixels,LONGLONG(frame)*10000000/30,10000000/30);writer.sound(std::vector<int16_t>(3200),LONGLONG(frame)*10000000/30);}writer.finish();}
+        {std::unique_ptr<media::Writer> writer;
+            try{writer=std::make_unique<media::Writer>(o,320,240,audio,fs::path{},nullptr,nullptr,file.get());}
+            catch(winrt::hresult_error const& e){
+                if(mode!=Encoder::GPU||e.code()!=MF_E_TOPO_CODEC_NOT_FOUND)throw;
+                std::cout<<"LIMIT: GPU memory codec "<<int(codec)<<" unavailable (MF_E_TOPO_CODEC_NOT_FOUND)\n";continue;
+            }
+            std::vector<BYTE> pixels(320*240*3/2,128);std::fill(pixels.begin(),pixels.begin()+320*240,BYTE(80));
+            for(unsigned frame=0;frame<30;++frame){writer->frame(pixels,LONGLONG(frame)*10000000/30,10000000/30);writer->sound(std::vector<int16_t>(3200),LONGLONG(frame)*10000000/30);}writer->finish();}
         file->seal();check(file->size()>0&&budget->used<=budget->limit,"in-memory MP4 missing or over quota");
         auto output=root/(L"ram-"+std::to_wstring(int(codec))+L"-"+std::to_wstring(int(mode))+L".mp4");
         const auto before=std::distance(fs::directory_iterator(root),fs::directory_iterator());media::joinMemory({file,file},output);check(decode(output,true)==60,"memory MP4 remux lost video/audio");
@@ -63,7 +69,7 @@ void memoryTests(fs::path const& root){
         bool refused=false;try{media::joinMemory({file},output);}catch(...){refused=true;}check(refused&&decode(output)==60,"memory export overwrote existing video");
         file.reset();check(budget->used==0,"memory stream retained payload after writer, export and clips were released");
     }
-    std::cout<<"PASS: bounded RAM streams, eviction, independent clones, sealed clips, CPU/GPU memory MP4, AAC, remux, cancel and no overwrite\n";
+    std::cout<<"PASS: bounded RAM streams, eviction, independent clones, sealed clips, available-encoder memory MP4, AAC, remux, cancel and no overwrite\n";
 }
 void checkBlueFrame(fs::path const& file){
     media::Ptr<IMFSourceReader> reader;winrt::check_hresult(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader));
