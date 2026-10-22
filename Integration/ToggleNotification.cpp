@@ -46,6 +46,7 @@ struct ToggleNotification::Impl {
         MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromWindow(owner,MONITOR_DEFAULTTONEAREST),&monitor);auto dpi=GetDpiForWindow(owner);int width=MulDiv(340,dpi,96),height=MulDiv(90,dpi,96),margin=MulDiv(24,dpi,96);
         window.AppWindow().MoveAndResize({monitor.rcWork.right-width-margin,monitor.rcWork.bottom-height-margin,width,height});
         bool visible=IsWindowVisible(hwnd)!=FALSE;
+        window.AppWindow().Show(false);
         ShowWindow(hwnd,SW_SHOWNOACTIVATE);SetWindowPos(hwnd,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
         if(!visible||leaving)animation(true);
         leaving=false;until=GetTickCount64()+3000;timer.Start();

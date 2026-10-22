@@ -1,5 +1,14 @@
 # 验证记录
 
+## 1.6.3.1 移除 Esc 停用与模块内快捷键卡片（2026-10-22）
+
+- 按用户要求删除 AutoClicker 引擎的 Esc 检测，Esc 不再停用连点；使能状态只由工具开关或已配置的统一快捷键切换。更新中英文 Clicker 提示，其他截图/选区等工具自己的 Esc 取消逻辑保持原有行为。
+- 完整删除 Clicker 子界面的快捷键标题、绑定状态、管理按钮和事件绑定；快捷键设置只在统一快捷键页面渲染，继续由 HotkeyManager 托管。静态解析 XAML 确认 Clicker 页面没有 Shortcut 控件；确认引擎没有 VK_ESCAPE，全部 Clicker 资源没有 Esc 提示。
+- 核查所有已注册 WM_HOTKEY 路径：AutoClicker 显示实际启停状态，其他快捷键通过统一 action 弹窗显示已触发，统一受 HotkeyNotifications 设置控制。通知增加 AppWindow.Show(false) 显式显示窗口，不请求焦点；未将通用触发提示声称为任务完成。
+- 最终 Debug 构建、Release 签名打包和两配置完整 scripts/test.ps1 通过，包含迁移、搜索、快捷键失败回滚、录屏与截图通信。661 对语言键、613 处静态引用检查通过，git diff --check 通过。符号链接夹具仍因权限错误 1314 跳过。
+- 本机最终部署 Release 1.6.3.1，安装 EXE 与构建哈希一致；已核对桌面快捷方式的包身份参数和工作目录。签名发布包 AeluraTool-1.6.3.1-x64-20261022-222039.zip 及安装脚本 CheckOnly 通过。部署前等待用户正常退出旧管理员实例，没有强制关闭用户任务。
+- 未重新操作桌面或向游戏发送输入；没有实测所有快捷键弹窗的可见显示、Esc 物理输入、主题切换、UAC 交接或干净系统安装。日志：artifacts/clicker-shortcut-cleanup-build-debug.log、clicker-shortcut-cleanup-distribution.log、clicker-shortcut-cleanup-tests-debug.log、clicker-shortcut-cleanup-tests-release.log。保留用户 BUILD_AND_DISTRIBUTE.md 修改。
+
 ## 1.6.3.0 包身份提权与统一快捷键提示（2026-10-22）
 
 - 核查确认旧 Privileges::launch 使用 runas 直接执行 EXE，与此前无包身份初始化失败的路径相同；此前仅修正桌面入口没有覆盖提权入口。现在读取 GetCurrentApplicationUserModelId，打包进程通过 shell:AppsFolder/AUMID 请求 runas；无包身份的核心测试宿主保留 EXE 回退。此实现参考了微软 Terminal elevate-shim 的包激活方式，未复制其源码。

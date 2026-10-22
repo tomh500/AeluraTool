@@ -91,7 +91,6 @@ public:
             bool pressed=false;INPUT releaseInput{};auto releaseAt=next;
             while(!stop_) {
                 MSG message{}; while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
-                if(GetAsyncKeyState(VK_ESCAPE)&0x8000)break;
                 auto active=GetForegroundWindow();
                 if(!active || active!=foreground) { held_=false; foreground=active; }
                 auto now=std::chrono::steady_clock::now();

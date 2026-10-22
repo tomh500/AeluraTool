@@ -22,7 +22,6 @@ void MainWindow::SetupAutoClicker() {
     AutoClickerBackButton().Click([this](auto const&,auto const&){GoBack();});
     AutoClickerSwitch().Toggled([this](auto const&,auto const&){if(!autoClickerUpdating_)ToggleAutoClicker();});
     AutoClickerSave().Click([this](auto const&,auto const&){if(SaveAutoClicker())Notice(tr("autoclicker.saved"));});
-    AutoClickerEditShortcut().Click([this](auto const&,auto const&){Page(1);KeySearch().Text(tr("autoclicker.title"));});
     autoClickerTimer_=DispatcherQueue().CreateTimer();autoClickerTimer_.Interval(std::chrono::milliseconds(100));
     autoClickerTimer_.Tick([this](auto const&,auto const&){if(!autoClicker_.running()){autoClickerTimer_.Stop();RefreshAutoClicker();if(autoClicker_.failed())Notice(tr("autoclicker.input_failed"),true);else Notice(tr("autoclicker.stopped"));}});
 }
@@ -42,7 +41,6 @@ void MainWindow::LocalizeAutoClicker() {
     AutoClickerBackLabel().Text(tr("nav.back"));AutoClickerHint().Text(tr("autoclicker.page_hint"));
     AutoClickerParametersTitle().Text(tr("autoclicker.parameters"));AutoClickerTrigger().Header(box_value(tr("autoclicker.trigger")));AutoClickerTarget().Header(box_value(tr("autoclicker.target")));
     AutoClickerRate().Header(box_value(tr("autoclicker.rate")));AutoClickerJitter().Header(box_value(tr("autoclicker.jitter")));AutoClickerSave().Content(box_value(tr("common.save")));
-    AutoClickerShortcutTitle().Text(tr("autoclicker.toggle"));AutoClickerEditShortcut().Content(box_value(tr("keys.manage")));
     AutoClickerSwitch().OnContent(box_value(tr("common.enabled")));AutoClickerSwitch().OffContent(box_value(tr("common.disabled")));
     HotkeyNotificationsSwitch().Header(box_value(tr("settings.hotkey_notifications")));HotkeyNotificationsHint().Text(tr("settings.hotkey_notifications_hint"));
     HotkeyNotificationsSwitch().OnContent(box_value(tr("common.enabled")));HotkeyNotificationsSwitch().OffContent(box_value(tr("common.disabled")));
@@ -52,7 +50,6 @@ void MainWindow::RefreshAutoClicker() {
     autoClickerUpdating_=true;bool enabled=autoClicker_.running();AutoClickerSwitch().IsOn(enabled);
     AutoClickerStateTitle().Text(tr(enabled?"autoclicker.state_on":"autoclicker.state_off"));AutoClickerStateHint().Text(tr(enabled?"autoclicker.state_on_hint":"autoclicker.state_off_hint"));
     AutoClickerTrigger().IsEnabled(!enabled);AutoClickerTarget().IsEnabled(!enabled);AutoClickerRate().IsEnabled(!enabled);AutoClickerJitter().IsEnabled(!enabled);AutoClickerSave().IsEnabled(!enabled);
-    for(auto const& binding:hotkeys_.bindings)if(binding.id==L"autoclicker")AutoClickerShortcutState().Text(aelura::hotkeys::label(binding)+L" 路 "+tr(!binding.enabled?"common.disabled":binding.registered?"common.enabled":"common.occupied"));
     autoClickerUpdating_=false;
 }
 bool MainWindow::SaveAutoClicker() {
