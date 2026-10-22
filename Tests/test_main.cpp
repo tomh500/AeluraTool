@@ -12,6 +12,7 @@ void run_filesearch_tests(fs::path const& root);
 void run_everything_tests(fs::path const& root);
 void run_file_shell_tests(fs::path const& root);
 void run_privileges_tests(fs::path const& root);
+void run_autoclicker_tests();
 
 int main(int argc, char** argv) {
     bool startup{};
@@ -39,6 +40,7 @@ int main(int argc, char** argv) {
         if (suite == "all") run_everything_tests(root / "everything");
         if (suite == "all") run_file_shell_tests(root / "shell");
         if (suite == "all") run_privileges_tests(root / "privileges");
+        if (suite == "all") run_autoclicker_tests();
         fs::remove_all(root);
         std::cout << "PASS: selected suites completed\n";
         return 0;

@@ -103,6 +103,7 @@ void MainWindow::ShowFileSearch() {
     fileSearch_->appearance(Root().RequestedTheme()); fileSearch_->show();
 }
 void MainWindow::ActivateTool(std::wstring const& id) {
+    if (id == L"autoclicker") { ShowAutoClicker(); return; }
     if (id == L"filesearch") { RestoreWindow(); Page(5); }
     else if (id == L"capture") Invoke(1);
     else if (id == L"move") { ShowWindow(hwnd_, SW_RESTORE); SetForegroundWindow(hwnd_); Page(3); }

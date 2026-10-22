@@ -126,6 +126,7 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Integration\ToolCatalog.h" />
+    <ClInclude Include="Integration\AutoClicker.h" />
     <ClInclude Include="Integration\HotkeyManager.h" />
     <ClInclude Include="Integration\FileMigration.h" />
     <ClInclude Include="Integration\FileHash.h" />
@@ -160,6 +161,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MainWindow.Tools.cpp" />
+    <ClCompile Include="MainWindow.AutoClicker.cpp" />
     <ClCompile Include="MainWindow.Hash.cpp" />
     <ClCompile Include="Integration\FileSearchWindow.cpp" />
     <ClCompile Include="Integration\FileSearch.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>

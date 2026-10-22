@@ -6,6 +6,7 @@
 #include <vector>
 #include "Integration/DesktopLifecycle.h"
 #include "Integration/HotkeyManager.h"
+#include "Integration/AutoClicker.h"
 #include "Integration/FileHash.h"
 #include "Integration/RecordingPanel.h"
 #include "Integration/FileSearchWindow.h"
@@ -23,6 +24,10 @@ namespace winrt::AeluraTool::implementation {
         HANDLE process_{}, job_{}, singleton_{};
         DWORD pid_{};
         aelura::hotkeys::Manager hotkeys_;
+        aelura::autoclicker::Engine autoClicker_;
+        winrt::fire_and_forget ShowAutoClicker();
+        bool autoClickerDialog_{};
+        Microsoft::UI::Dispatching::DispatcherQueueTimer autoClickerTimer_{nullptr};
         std::unique_ptr<aelura::filesearch::SearchWindow> fileSearch_;
         std::unique_ptr<aelura::filesearch::SearchWindow> fileSearchPage_;
         std::shared_ptr<aelura::filesearch::Index> fileSearchIndex_;

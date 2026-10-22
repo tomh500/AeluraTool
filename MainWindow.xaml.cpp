@@ -284,6 +284,8 @@ using aelura::i18n::tr;
             }
         }
         if (msg == WM_DESTROY) {
+            if(self->autoClickerTimer_)self->autoClickerTimer_.Stop();
+            self->autoClicker_.stop();
             if (self->fileSearch_) self->fileSearch_->close();
             if (self->fileSearchPage_) self->fileSearchPage_->close();
             self->tray_.Remove();
