@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2025-vs2026
     timeout-minutes: 180
     env:
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/vcpkg-binary-cache
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/artifacts/vcpkg-binary-cache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
