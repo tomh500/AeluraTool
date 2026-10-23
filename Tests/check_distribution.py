@@ -34,6 +34,12 @@ with tempfile.TemporaryDirectory(prefix="Aelura distribution ") as directory:
     dependencies.rename(installer.parent / "Dependencies.saved")
     check(False)
     (installer.parent / "Dependencies.saved").rename(dependencies)
+    # A directory with some files is not enough: every declared dependency must
+    # be present, even if the host already has the missing runtime installed.
+    dependency = next((dependencies / "x64").glob("*.msix"))
+    dependency.rename(dependency.with_suffix(".saved"))
+    check(False)
+    dependency.with_suffix(".saved").rename(dependency)
     certificate = installer.parent / "AeluraTool.cer"
     certificate.rename(certificate.with_suffix(".saved"))
     check(False)

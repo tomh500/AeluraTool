@@ -26,6 +26,7 @@ $installer = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Install.ps1') -R
 $installer.Replace('__SIGNER_THUMBPRINT__', $certificate.Thumbprint) | Set-Content -LiteralPath (Join-Path $folder 'Install.ps1') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install.cmd') -Destination $folder
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install.bat') -Destination $folder
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Installer.Dependencies.ps1') -Destination $folder
 Copy-Item -LiteralPath (Join-Path $repoRoot 'Strings') -Destination $folder -Recurse
 Copy-Item -LiteralPath (Join-Path $repoRoot 'Tools\Licenses') -Destination $folder -Recurse
 Copy-Item -LiteralPath (Join-Path $repoRoot 'BUILD_AND_DISTRIBUTE.md') -Destination $folder

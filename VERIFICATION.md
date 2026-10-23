@@ -392,3 +392,12 @@
 - 使用本机现有不可导出私钥证书生成 `artifacts/distribution/AeluraTool-1.6.4.1-x64-20261024-040612.zip`，SHA256 为 `AA1A894514CC00AE315219EA0F45CC5982FE35034632945409C7C439E5C0E42F`。未导出私钥或修改证书信任。`Tests/check_distribution.py` 在临时目录解压实际 ZIP，PS1、BAT、CMD 的只读预检通过；缺失依赖、缺失证书、错误签名指纹与未签名包均拒绝。
 - PowerShell 语法、工作流 YAML 解析及 git diff --check 通过。未重新进行主题、分类导航的人工界面检查；未在干净设备验证 UAC、安装升级或组织策略拦截。未验证 CI PFX 导入后的完整远端签名流程；仓库须配置 `MSIX_SIGNING_PFX_BASE64` / `MSIX_SIGNING_PFX_PASSWORD` 后运行。旧未签名 nightly 仍需替换为签名包。
 
+## 2026-10-24 共享运行库占用安装修复（1.6.4.2）
+
+- 用户提供的 VMware Windows 部署日志显示签名验证通过；部署事务提交了 Windows App Runtime x86/x64 和 VCLibs，小组件及 WebExperience 占用资源导致 0x80073D02。未访问虚拟机，不能确认其既有运行库版本。
+- 安装器现从主包与随附依赖读取清单，按名称、发布者、架构、最低版本及当前用户包健康状态筛选；已满足要求的运行库不再提交。保留 ZIP 对全部依赖的完整性要求。部署使用 Windows 延迟注册，随后核对目标主包版本及依赖；未就绪时返回 3010、不创建快捷方式，提示重启 Windows 后重试。0x80073D02 保留原始错误和针对性指引，无强制终止进程或自动重启。
+- Windows PowerShell 实际执行 `Tests/installer_dependencies.ps1`：最低版本/较新版本跳过、旧版升级、架构/发布者/健康状态不匹配、仅提交缺失依赖、不传空 DependencyPath、主包未注册/旧版/开发布局与依赖待注册不误报成功、部署错误传播均通过。测试仅创建临时 ZIP 清单，部署命令使用隔离模拟。
+- BAT/CMD 测试通过，新增 3010 返回码及暂停检查。713 组翻译键匹配。Release / Debug 构建、全部现有测试（含迁移核心、搜索、快捷键失败回滚、截图通信及录屏）通过；文件符号链接样本仍受权限 1314 限制。版本递增后再次完成 Release / Debug 构建并分别自动部署；最终签名打包部署 Release 1.6.4.2。
+- 生成 `artifacts/distribution/AeluraTool-1.6.4.2-x64-20261024-041541.zip`，SHA256 `958BFB40E644AE09F7AF8740875D6297ED0A5C57CF5EB38D06A179CF5A1B0171`。实际解压 ZIP 后 PS1/BAT/CMD 的只读预检通过；依赖目录缺失、仅缺一个依赖、证书缺失、错误指纹与未签名包均拒绝。本机预检显示两项依赖已满足、无需更新；未实际安装此 MSIX，未在 VMware 验证重启后延迟注册结果。
+- 最终桌面快捷方式的包身份、目标、图标与工作目录核对通过，37 个部署文件逐个与 Release 构建文件哈希一致。PowerShell 语法与 git diff --check 通过。本轮未重新人工验证主题与分类导航；保留原有 BUILD_AND_DISTRIBUTE.md 空行改动。
+

@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory(prefix="Aelura installer ") as directory:
     for name in ("Install.bat", "Install.cmd"):
         shutil.copy2(root / "scripts" / name, folder / name)
     for launcher in ("Install.bat", "Install.cmd"):
-        for code in (0, 23):
+        for code in (0, 23, 3010):
             (folder / "Install.ps1").write_text(
                 "param([switch]$NoPause, [switch]$CheckOnly)\n"
                 "if (!$NoPause -or !$CheckOnly -or ![Environment]::Is64BitProcess) { exit 99 }\n"
