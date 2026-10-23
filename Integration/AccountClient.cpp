@@ -3,6 +3,7 @@
 #include <winhttp.h>
 #include <wincred.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <algorithm>
 #pragma comment(lib,"Winhttp.lib")
 #pragma comment(lib,"Advapi32.lib")
