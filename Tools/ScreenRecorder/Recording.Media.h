@@ -30,7 +30,7 @@ struct Microphone : AudioFormat {
     std::vector<int16_t> read();
 };
 struct Writer {
-    Ptr<IMFSinkWriter> sink; DWORD video{}, audio{MAXDWORD}; unsigned rate{}, channels{};
+    Ptr<IMFSinkWriter> sink; DWORD video{}, audio{MAXDWORD}; unsigned rate{}, channels{},width{},height{};
     std::unique_ptr<gpu::Encoder> native;
     Writer(Options const&, unsigned width, unsigned height, AudioFormat const&, std::filesystem::path const&,gpu::Pipeline* = nullptr,std::unique_ptr<gpu::Encoder> = {},MemoryFile* = nullptr);
     void frame(std::vector<BYTE> const&, LONGLONG time, LONGLONG duration);

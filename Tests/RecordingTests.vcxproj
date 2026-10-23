@@ -8,6 +8,7 @@
  <ItemDefinitionGroup><ClCompile><LanguageStandard>stdcpp20</LanguageStandard><AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions><AdditionalIncludeDirectories>$(ProjectDir)..\Tools\ScreenShotPlus\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories><PreprocessorDefinitions>NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions><WarningLevel>Level4</WarningLevel></ClCompile><Link><SubSystem>Console</SubSystem><AdditionalDependencies>ole32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link></ItemDefinitionGroup>
  <ItemGroup>
   <ClCompile Include="recording_tests.cpp"/>
+  <ClCompile Include="recording_color_tests.cpp"/>
   <ClCompile Include="recording_fullscreen_tests.cpp"/>
   <ClCompile Include="recording_audio_tests.cpp"/>
   <ClCompile Include="recording_replay_tests.cpp"/>

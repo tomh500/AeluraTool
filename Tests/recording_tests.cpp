@@ -9,6 +9,7 @@
 using namespace aelura::recording;
 namespace fs=std::filesystem;
 void fullscreenTests(fs::path const&);
+void colorTests(fs::path const&);
 void audioTests(fs::path const&,bool);
 void replayConsumeTests(fs::path const&);
 void check(bool value,char const* reason){if(!value)throw std::runtime_error(reason);}
@@ -156,6 +157,7 @@ int wmain(int argc,wchar_t** argv){
     fs::path root=fs::temp_directory_path()/(L"AeluraRecordingTests-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
     try{
         media::Runtime runtime;
+        if(argc==2&&std::wstring(argv[1])==L"--color-only"){fs::create_directory(root);colorTests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--replay-consume-only"){fs::create_directory(root);replayConsumeTests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--audio-loopback-only"){fs::create_directory(root);audioTests(root,true);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--fullscreen-only"){fs::create_directory(root);fullscreenTests(root);fs::remove_all(root);return 0;}
@@ -175,6 +177,7 @@ int wmain(int argc,wchar_t** argv){
         }
         check(argc==1,"unknown arguments");check(fs::create_directory(root),"temporary sandbox creation failed");
         audioTests(root,false);
+        colorTests(root);
         Options o;o.systemAudio=false;o.directory=root/L"中文视频";fs::create_directory(o.directory);
         auto rejects=[&](Options const& value,RECT r){try{validate(value,r);return false;}catch(...){return true;}};
         validate(o,{0,0,320,240});auto bad=o;bad.fps=0;check(rejects(bad,{0,0,320,240}),"zero fps accepted");bad=o;bad.bitrate=0;check(rejects(bad,{0,0,320,240}),"zero bitrate accepted");check(rejects(o,{0,0,1,240}),"one pixel region accepted");

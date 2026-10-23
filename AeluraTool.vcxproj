@@ -147,6 +147,7 @@
     <ClInclude Include="Integration\Diagnostics.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.Media.h" />
+    <ClInclude Include="Tools\ScreenRecorder\Recording.Color.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.Memory.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.Gpu.h" />
     <ClInclude Include="Tools\ScreenRecorder\Recording.Desktop.h" />
