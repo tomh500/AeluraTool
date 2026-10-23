@@ -30,14 +30,15 @@ std::wstring normalizeEndpoint(std::wstring const& value){
 }
 bool authorizationUrl(std::wstring const& value,std::string const& provider){
     try{Windows::Foundation::Uri uri(value);return uri.SchemeName()==L"https"&&uri.UserName().empty()&&uri.Password().empty()&&
-        uri.Port()==443&&((provider=="qq"&&uri.Host()==L"graph.qq.com"&&uri.Path()==L"/oauth2.0/authorize")||(provider=="google"&&uri.Host()==L"accounts.google.com"&&uri.Path()==L"/o/oauth2/v2/auth"));}catch(...){return false;}
+        uri.Port()==443&&((provider=="qq"&&uri.Host()==L"graph.qq.com"&&uri.Path()==L"/oauth2.0/authorize")||(provider=="google"&&uri.Host()==L"accounts.google.com"&&uri.Path()==L"/o/oauth2/v2/auth")||(provider=="microsoft"&&uri.Host()==L"login.microsoftonline.com"&&uri.Path()==L"/consumers/oauth2/v2.0/authorize"));}catch(...){return false;}
 }
 void validateProfile(JsonObject const& value){
     try{
         auto id=std::wstring(value.GetNamedString(L"user_id"));
         auto provider=value.GetNamedString(L"session_provider");
-        if(id.size()!=32||!std::all_of(id.begin(),id.end(),[](wchar_t c){return (c>=L'0'&&c<=L'9')||(c>=L'a'&&c<=L'f');})||(provider!=L"qq"&&provider!=L"google"))throw Error{"account.network_error"};
+        if(id.size()!=32||!std::all_of(id.begin(),id.end(),[](wchar_t c){return (c>=L'0'&&c<=L'9')||(c>=L'a'&&c<=L'f');})||(provider!=L"qq"&&provider!=L"google"&&provider!=L"microsoft"))throw Error{"account.network_error"};
         (void)value.GetNamedBoolean(L"qq_linked");(void)value.GetNamedBoolean(L"google_linked");(void)value.GetNamedBoolean(L"service_allowed");
+        if(provider==L"microsoft"||value.HasKey(L"microsoft_linked"))(void)value.GetNamedBoolean(L"microsoft_linked");
     }catch(...){throw Error{"account.network_error"};}
 }
 JsonObject request(std::wstring const& endpoint,wchar_t const* method,std::wstring const& path,std::string const& bearer,std::string const& session){
