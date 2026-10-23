@@ -15,15 +15,16 @@ struct Panel::Impl:std::enable_shared_from_this<Impl>{
     StackPanel root;TextBlock title,hint,state,identity,bindings,permission;TextBox address;
     Button save,qq,google,link,logout,refreshButton,cancel;ProgressRing progress;
     explicit Impl(std::filesystem::path const& path):settings(path){
-        wchar_t value[256]{};GetPrivateProfileStringW(L"Account",L"Service",L"http://localhost:18741",value,256,path.c_str());
-        try{endpoint=normalizeEndpoint(value);}catch(...){endpoint=L"http://localhost:18741";}
-        token=loadCredential(endpoint);root.Spacing(12);title.FontSize(18);title.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+        wchar_t value[256]{};GetPrivateProfileStringW(L"Account",L"Service",L"",value,256,path.c_str());
+        if(*value){try{endpoint=normalizeEndpoint(value);}catch(...){message="account.invalid_endpoint";}}
+        else message="account.configure_service";
+        if(!endpoint.empty())token=loadCredential(endpoint);root.Spacing(12);title.FontSize(18);title.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
         for(auto text:{hint,state,identity,bindings,permission})text.TextWrapping(TextWrapping::Wrap);
         root.Children().Append(title);root.Children().Append(hint);root.Children().Append(state);
         root.Children().Append(identity);root.Children().Append(bindings);root.Children().Append(permission);
         auto row=[&](std::initializer_list<UIElement> list){StackPanel line;line.Orientation(Orientation::Horizontal);line.Spacing(10);for(auto const& item:list)line.Children().Append(item);root.Children().Append(line);};
         progress.Width(22);progress.Height(22);row({qq,google,link});row({logout,refreshButton,cancel,progress});
-        address.Text(endpoint);address.HorizontalAlignment(HorizontalAlignment::Stretch);root.Children().Append(address);root.Children().Append(save);
+        address.Text(value);address.HorizontalAlignment(HorizontalAlignment::Stretch);root.Children().Append(address);root.Children().Append(save);
     }
     void attach(){
         auto weak=weak_from_this();qq.Click([weak](auto const&,auto const&){if(auto self=weak.lock())self->login("qq",false);});
@@ -36,12 +37,15 @@ struct Panel::Impl:std::enable_shared_from_this<Impl>{
     }
     void render(){
         if(closed)return;
-        title.Text(tr("account.title"));hint.Text(tr("account.hint"));state.Text(tr(message.c_str()));
+        title.Text(tr("account.title"));hint.Text(tr(endpoint.empty()?"account.configure_hint":"account.hint"));state.Text(tr(message.c_str()));
+        for(auto text:{identity,bindings,permission})text.Visibility(signedIn?Visibility::Visible:Visibility::Collapsed);
+        link.Visibility(signedIn?Visibility::Visible:Visibility::Collapsed);
+        logout.Visibility(token.empty()?Visibility::Collapsed:Visibility::Visible);
         qq.Content(box_value(tr(signedIn?"account.qq_reauth":"account.qq_login")));google.Content(box_value(tr("account.google_login")));
         link.Content(box_value(tr("account.google_link")));logout.Content(box_value(tr("account.logout")));refreshButton.Content(box_value(tr("account.refresh")));
-        cancel.Content(box_value(tr("common.cancel")));save.Content(box_value(tr("account.save_service")));address.Header(box_value(tr("account.service_address")));
+        cancel.Content(box_value(tr("common.cancel")));save.Content(box_value(tr("account.save_service")));address.Header(box_value(tr("account.service_address")));address.PlaceholderText(tr("account.service_placeholder"));
         qq.IsEnabled(!busy&&qqReady);google.IsEnabled(!busy&&!signedIn&&googleReady);link.IsEnabled(!busy&&signedIn&&googleReady&&!profile.GetNamedBoolean(L"google_linked",false));
-        logout.IsEnabled(!busy&&!token.empty());refreshButton.IsEnabled(!busy);address.IsEnabled(!busy);save.IsEnabled(!busy);
+        logout.IsEnabled(!busy&&!token.empty());refreshButton.IsEnabled(!busy&&!endpoint.empty());address.IsEnabled(!busy);save.IsEnabled(!busy);
         cancel.Visibility(busy?Visibility::Visible:Visibility::Collapsed);progress.IsActive(busy);progress.Visibility(busy?Visibility::Visible:Visibility::Collapsed);
         identity.Text(signedIn?hstring(tr("account.user_id"))+profile.GetNamedString(L"user_id",L""):L"");
         bindings.Text(signedIn?tr(profile.GetNamedBoolean(L"google_linked",false)?"account.both_bound":"account.qq_bound"):L"");
@@ -52,7 +56,7 @@ struct Panel::Impl:std::enable_shared_from_this<Impl>{
         if(t.empty()||s.empty())co_return;co_await resume_background();try{request(base,L"DELETE",std::wstring(L"/v2/accounts/flow/")+to_hstring(t).c_str(),s);}catch(...){}
     }
     fire_and_forget refresh()try{
-        auto self=shared_from_this();if(busy||closed)co_return;busy=true;auto version=++generation;auto base=endpoint;auto saved=token;apartment_context ui;
+        auto self=shared_from_this();if(busy||closed)co_return;if(endpoint.empty()){message="account.configure_service";render();co_return;}busy=true;auto version=++generation;auto base=endpoint;auto saved=token;apartment_context ui;
         message="account.checking";render();JsonObject config,me;std::string issue;
         bool qqAvailable=false,googleAvailable=false;
         co_await resume_background();try{config=request(base,L"GET",L"/v2/accounts/config");qqAvailable=config.GetNamedBoolean(L"qq");googleAvailable=config.GetNamedBoolean(L"google");if(!saved.empty()){me=request(base,L"GET",L"/v2/accounts/me",saved);validateProfile(me);}}catch(Error const& e){issue=e.key;}catch(...){issue="account.network_error";}
@@ -119,9 +123,9 @@ struct Panel::Impl:std::enable_shared_from_this<Impl>{
     }catch(...){}
     void saveEndpoint(){
         try{
-            auto value=normalizeEndpoint(std::wstring(address.Text()));
+            auto entered=std::wstring(address.Text());auto value=entered.empty()?std::wstring{}:normalizeEndpoint(entered);
             if(!WritePrivateProfileStringW(L"Account",L"Service",value.c_str(),settings.c_str()))throw Error{"account.settings_failed"};
-            endpoint=value;address.Text(value);token=loadCredential(endpoint);signedIn=false;profile=JsonObject();qqReady=googleReady=false;refresh();
+            endpoint=value;address.Text(value);token=value.empty()?std::string{}:loadCredential(endpoint);signedIn=false;profile=JsonObject();qqReady=googleReady=false;refresh();
         }catch(Error const&e){message=e.key;render();}
     }
 };

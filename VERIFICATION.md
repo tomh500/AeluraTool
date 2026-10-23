@@ -1,5 +1,13 @@
 # 验证记录
 
+## 账号服务未配置状态与卡片留白（2026-10-23，1.6.4.1）
+
+- 用户截图显示账号卡片连接默认 localhost:18741 失败，且未登录身份信息占用空白区域。移除自动填写的 SSH 联调地址：缺省服务地址为空，不读取空地址凭据、不发起检查请求，显示设置地址提示；明确保存过的地址保持原样，也允许清空后保存。未登录时折叠用户 ID、绑定/权限信息及绑定按钮，没有本地凭据时隐藏退出按钮。
+- 新增文案均为中英资源键，708 对翻译、658 个静态引用检查通过。没有修改独立服务端、配置真实 OAuth 应用或改变用户的提权设置；此修复不代表真实登录服务已开放。
+- Debug / Release x64 均成功构建并分别同步部署；两套 scripts/test.ps1 完整自动回归通过，包括迁移、搜索匹配、快捷键失败回滚、账号服务地址/凭据检查及截图通信/Job 检查。日志为 artifacts/account-layout-build-debug.txt、account-layout-build-release.txt、account-layout-tests-debug.txt、account-layout-tests-release.txt。
+- 最终本机部署为 Release 1.6.4.1，37 个 package recipe 部署文件与构建输入逐项哈希一致；桌面快捷方式的 explorer.exe / shell:AppsFolder 包身份目标、图标和工作目录均与该布局一致。没有强制结束用户进程；保留已有 BUILD_AND_DISTRIBUTE.md 修改。
+- 本轮根据用户截图和代码修复，未重新完成管理员窗口下的浅/深色、即时语言切换及卡片布局交互验收；沿用既有 ThemeResource，实际视觉结果仍需在可操作窗口中复核。QQ/Google 应用注册和真实浏览器授权联调仍未完成。
+
 ## QQ / Google 账号客户端（2026-10-23，1.6.4.0）
 
 - 在 codex/account-login 分支为设置页新增独立 AccountPanel / AccountClient，支持 QQ 登录、Google 绑定及后续登录、刷新、取消和退出；全局搜索可定位账号设置。本地工具不要求登录，登录成功不会自动获得远端服务权限。后端仅位于独立 WallpaperRelay 仓库的 codex/account-linking 分支，使用 MySQL；未将服务端代码放入 Win32 工程。

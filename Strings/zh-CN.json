@@ -1,5 +1,8 @@
 {
   "account.title": "账号",
+  "account.configure_service": "尚未设置账号服务地址。",
+  "account.configure_hint": "设置服务地址后，可通过 QQ 或已绑定的 Google 账号登录。",
+  "account.service_placeholder": "输入账号服务的 HTTPS 地址",
   "account.hint": "首次使用请通过 QQ 登录，再绑定 Google。绑定后可使用 Google 登录同一账号。",
   "account.signed_out": "尚未登录",
   "account.signed_in": "已登录",

@@ -1,5 +1,8 @@
 {
   "account.title": "Account",
+  "account.configure_service": "No account service address has been set.",
+  "account.configure_hint": "Set the service address to sign in with QQ or a linked Google account.",
+  "account.service_placeholder": "Enter the HTTPS address of your account service",
   "account.hint": "Sign in with QQ first, then link Google. You can then use Google to sign in to the same account.",
   "account.signed_out": "Not signed in",
   "account.signed_in": "Signed in",
