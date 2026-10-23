@@ -9,3 +9,5 @@ Generated Files/
 *.pdb
 *.obj
 *.log
+*.pfx
+*.p12

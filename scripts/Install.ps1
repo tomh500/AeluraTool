@@ -1,4 +1,4 @@
-param([switch]$CheckOnly)
+param([switch]$CheckOnly, [switch]$NoPause)
 $ErrorActionPreference = 'Stop'
 $exitCode = 0
 $language = if ([Globalization.CultureInfo]::CurrentUICulture.Name -like 'zh-*') { 'zh-CN' } else { 'en-US' }
@@ -59,6 +59,6 @@ try {
     Write-Host ((T 'install.failure') -f $_.Exception.Message) -ForegroundColor Red
     Write-Host (T 'install.help')
 } finally {
-    if (!$CheckOnly) { Read-Host (T 'install.finish') | Out-Null }
+    if (!$CheckOnly -and !$NoPause) { Read-Host (T 'install.finish') | Out-Null }
 }
 exit $exitCode

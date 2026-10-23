@@ -382,3 +382,13 @@
 - 临时目录时间戳夹具生成 2026.295.754.0，与输入 UTC 2026-10-22T12:34:56Z 一致；工作流 YAML 解析通过。
 - 本轮未重做主题、分类导航的人工界面检查；文件符号链接夹具仍受权限 1314 限制。
 
+## 2026-10-24 Nightly 签名与双击安装
+
+- 开始时已有 `BUILD_AND_DISTRIBUTE.md` 的空行改动；本轮保留，未纳入提交。
+- 定位现有 nightly 工作流主动关闭 MSIX 签名，并直接压缩 SDK 输出；修改为使用固定 PFX secrets 调用签名分发脚本，附带 CER、依赖、中文/英文资源、Install.bat 与兼容 Install.cmd。缺少 secrets 的拒绝路径已实际检查；未配置或触发远端 Actions。
+- Release 初次构建暴露 AccountClient.cpp 使用 JsonObject.HasKey 时缺少 Windows.Foundation.Collections.h；补齐后 Release / Debug 构建均成功，两种配置各自成功后自动更新本机包身份部署与桌面快捷方式。最终签名打包再次部署 Release；核对快捷方式 explorer 目标、AppsFolder 包身份、图标、工作目录一致，并逐个核对 37 个部署文件与 Release 构建源文件哈希一致。
+- Release / Debug 的全部现有测试通过，包括迁移、检索、搜索、快捷键失败回滚、账户、录屏、截图分享和截图通信。708 组翻译资源检查通过。文件符号链接测试仍受权限 1314 限制；所有迁移夹具均使用临时目录。
+- `Tests/check_installer.py` 实际执行 BAT 与 CMD：成功退出、失败退出码保留及 pause 提示、缺失脚本、参数传递、中文及空格路径均通过。BAT 为当前子进程指定 Bypass 并隔离 PowerShell 7 模块路径，不更改持久执行策略。
+- 使用本机现有不可导出私钥证书生成 `artifacts/distribution/AeluraTool-1.6.4.1-x64-20261024-040612.zip`，SHA256 为 `AA1A894514CC00AE315219EA0F45CC5982FE35034632945409C7C439E5C0E42F`。未导出私钥或修改证书信任。`Tests/check_distribution.py` 在临时目录解压实际 ZIP，PS1、BAT、CMD 的只读预检通过；缺失依赖、缺失证书、错误签名指纹与未签名包均拒绝。
+- PowerShell 语法、工作流 YAML 解析及 git diff --check 通过。未重新进行主题、分类导航的人工界面检查；未在干净设备验证 UAC、安装升级或组织策略拦截。未验证 CI PFX 导入后的完整远端签名流程；仓库须配置 `MSIX_SIGNING_PFX_BASE64` / `MSIX_SIGNING_PFX_PASSWORD` 后运行。旧未签名 nightly 仍需替换为签名包。
+
