@@ -401,3 +401,9 @@
 - 生成 `artifacts/distribution/AeluraTool-1.6.4.2-x64-20261024-041541.zip`，SHA256 `958BFB40E644AE09F7AF8740875D6297ED0A5C57CF5EB38D06A179CF5A1B0171`。实际解压 ZIP 后 PS1/BAT/CMD 的只读预检通过；依赖目录缺失、仅缺一个依赖、证书缺失、错误指纹与未签名包均拒绝。本机预检显示两项依赖已满足、无需更新；未实际安装此 MSIX，未在 VMware 验证重启后延迟注册结果。
 - 最终桌面快捷方式的包身份、目标、图标与工作目录核对通过，37 个部署文件逐个与 Release 构建文件哈希一致。PowerShell 语法与 git diff --check 通过。本轮未重新人工验证主题与分类导航；保留原有 BUILD_AND_DISTRIBUTE.md 空行改动。
 
+## 2026-10-24 Nightly 文档路径过滤
+
+- `main` 的 push 增加 `paths-ignore: ['**/*.md', 'Docs/**']`；仅文档变更不再构建或发布。仍保留 `workflow_dispatch` 手动触发；同次推送存在过滤范围之外的文件仍运行。
+- 本地解析工作流 YAML 并核对路径样例：根 README、嵌套 Markdown、Docs 下说明/图片均跳过；Markdown 混合 C++、JSON 资源、安装脚本、工作流、程序图标和 vcxproj 变更均运行。此为本地模式检查，未推送或验证真实 Actions 触发记录。
+- CI 纳入安装依赖筛选/延迟注册的隔离测试，并显式检查 BAT/CMD 测试退出码。git diff --check 通过。
+

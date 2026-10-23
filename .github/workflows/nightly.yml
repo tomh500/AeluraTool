@@ -3,6 +3,10 @@ name: Build and nightly release
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'Docs/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -54,6 +58,9 @@ jobs:
         shell: pwsh
         run: |
           python Tests/check_installer.py
+          if ($LASTEXITCODE) { throw 'Installer launcher tests failed' }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tests/installer_dependencies.ps1
+          if ($LASTEXITCODE) { throw 'Installer dependency tests failed' }
           ./scripts/build.ps1 -Configuration Release
           ./scripts/test.ps1 -Configuration Release
           ./scripts/build.ps1 -Configuration Debug
