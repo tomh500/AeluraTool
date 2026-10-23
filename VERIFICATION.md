@@ -1,5 +1,15 @@
 # 验证记录
 
+## QQ / Google 账号客户端（2026-10-23，1.6.4.0）
+
+- 在 codex/account-login 分支为设置页新增独立 AccountPanel / AccountClient，支持 QQ 登录、Google 绑定及后续登录、刷新、取消和退出；全局搜索可定位账号设置。本地工具不要求登录，登录成功不会自动获得远端服务权限。后端仅位于独立 WallpaperRelay 仓库的 codex/account-linking 分支，使用 MySQL；未将服务端代码放入 Win32 工程。
+- 产品文案全部使用中英配对资源键，705 对翻译、655 个静态资源引用检查通过。新增卡片沿用 ThemeResource，文本继承现有主题样式，按钮使用 WinUI 默认主题样式。客户端拒绝公网 HTTP、带用户名/密码、非根路径、查询及片段的服务地址；只允许官方 HTTPS 授权主机与路径，不跟随 API 重定向。
+- Debug / Release x64 构建通过，现有两套完整自动回归通过，覆盖迁移核心、搜索匹配、快捷键注册/保存失败回滚、录屏、截图通信和 Job 生命周期。新增 AccountTests 两种配置通过，检查服务地址、授权 URL、请求头令牌注入拒绝、异常用户资料拒绝、Windows 凭据按服务隔离、失败写入保留旧凭据、替换及退出清理；只操作随机生成的测试凭据目标。日志为 artifacts/account-build-debug.txt、account-build-release.txt、account-tests-debug.txt、account-tests-release.txt、account-client-debug.txt。
+- Windows 原生 WinHTTP 客户端经 SSH 隧道实连服务器，读取 /v2/accounts/config 得到 qq=false/google=false，无会话请求被拒绝且错误键映射正常。服务端 Linux 44 项测试通过、Windows 43 项通过及 1 项符号链接权限跳过；真实 MySQL 临时数据库中 20 项账号检查通过，包括并发抢绑、回调重放、会话撤销、绑定身份与服务权限。真实 Google/QQ 应用尚未注册，未完成实际第三方授权。
+- 首次 Debug 部署被正在运行的工具箱保护性拒绝，没有强制结束进程或活动任务；进程结束后已重新成功构建并部署 Debug 1.6.4.0。最终 Release 1.6.4.0 也已构建并部署，桌面快捷方式通过 explorer.exe / shell:AppsFolder 保留包身份，工作目录及图标均指向最新 Release 版本化布局；逐项核对包 recipe 的部署文件与构建输入哈希一致。
+- 自动界面验收受到当前用户自动提权设置影响：工具箱窗口以高于 Computer Use 的完整性运行，无法可靠读取或操作；没有绕过权限屏障、修改自动提权偏好或据此声称完成浅/深色、语言即时切换、账号搜索及分类导航的实际界面验收。ThemeResource 与资源键仅完成代码检查，搜索/快捷键回滚完成现有自动测试。当前没有解绑、会话刷新及管理员界面，服务器无公网 HTTPS 入口；第三方应用注册后还需完整浏览器授权联调。
+- 保留用户已有 BUILD_AND_DISTRIBUTE.md 修改，不纳入功能提交；没有推送或新增远程仓库。
+
 ## ROCCAT VirtualHID 授权安装与通信验证（2026-10-22）
 
 - 经用户明确授权，完成本机 ROCCAT 模块、签名和静态反汇编检查，使用 Windows SetupAPI/NewDev 安装厂商原始签名 VirtualHID。没有执行未签名 devcon、改写驱动或处理固件。

@@ -91,7 +91,7 @@ using aelura::i18n::tr;
         GamesNav().Style((index == 0 && category_ == 3) || index == 7 ? selected : standard);
         KeysNav().Style(index == 1 ? selected : standard); PreferencesNav().Style(index == 2 ? selected : standard);
         if (index == 0) RenderTools(); if (index == 1) RenderKeys(); if (index == 4) RenderHash();
-        if (index == 2 && ready_) StartupSetting();
+        if (index == 2 && ready_) { StartupSetting(); if(account_)account_->refresh(); }
     }
     void MainWindow::Setup(bool startupActivation) {
         startupActivation_ = startupActivation;
@@ -191,6 +191,7 @@ using aelura::i18n::tr;
         recording_ = std::make_unique<aelura::recording::Panel>(hwnd_,config_.parent_path()/L"recording.json",[this]{RestoreWindow();Page(6);if(recording_&&!recording_->busy())Status().IsOpen(false);},[this]{auto host=EngineWindow();if(!host&&!pending_)Invoke(capture::Prepare);return host;});
         RecordingHost().Content(recording_->content());recording_->theme(Root().RequestedTheme());
         RecordingBackButton().Click([this](auto const&,auto const&){GoBack();});
+        account_=std::make_unique<aelura::account::Panel>(config_);AccountHost().Content(account_->content());
         SetupAutoClicker(); SetupHash(); SetupLifecycle(); ApplyLanguage(); ready_ = true;
         timer_ = DispatcherQueue().CreateTimer(); timer_.Interval(std::chrono::milliseconds(100));
         timer_.Tick([this](auto const&, auto const&) {

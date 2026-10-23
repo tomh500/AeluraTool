@@ -19,6 +19,10 @@ try {
     & ".\artifacts\tests\$Configuration\CoreTests.exe" --suite $Suite
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
     if (!$CoreOnly) {
+        & $buildPath Tests\AccountTests.vcxproj /nologo /v:minimal "/p:Configuration=$Configuration" /p:Platform=x64 /p:VisualStudioVersion=18.0
+        if ($LASTEXITCODE -ne 0) { throw 'Account test build failed.' }
+        & ".\artifacts\tests\$Configuration\AccountTests.exe"
+        if ($LASTEXITCODE -ne 0) { throw 'Account tests failed.' }
         & $buildPath Tests\RecordingTests.vcxproj /nologo /v:minimal "/p:Configuration=$Configuration" /p:Platform=x64 /p:VisualStudioVersion=18.0
         if ($LASTEXITCODE -ne 0) { throw 'Recording test build failed.' }
         & ".\artifacts\tests\$Configuration\RecordingTests.exe"

@@ -9,6 +9,7 @@ using namespace Microsoft::UI::Xaml;
 namespace winrt::AeluraTool::implementation {
 using aelura::i18n::tr;
 void MainWindow::ApplyLanguage() {
+    if(account_)account_->localize();
     if(toggleNotification_)toggleNotification_->close();
     if (fileSearch_) fileSearch_->localize();
     if (fileSearchPage_) fileSearchPage_->localize();
