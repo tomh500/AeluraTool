@@ -38,6 +38,12 @@ struct Snapshot {
     HRESULT systemAudioError{S_OK},microphoneError{S_OK};
     bool memoryReplay{},memoryLimited{};uint64_t cacheBytes{};
 };
+struct HardwareEncoders {
+    bool h264{},hevc{};HRESULT error{S_OK};
+    bool supports(Codec codec) const { return SUCCEEDED(error)&&(codec==Codec::H264?h264:hevc); }
+};
+// Reports hardware video encoders for each output format, not display adapters.
+HardwareEncoders hardwareEncoders() noexcept;
 Options load(std::filesystem::path const& file);
 void save(std::filesystem::path const& file, Options const& options);
 void validate(Options const&, RECT region);

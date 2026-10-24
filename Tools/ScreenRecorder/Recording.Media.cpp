@@ -19,6 +19,13 @@ namespace aelura::recording::media {
 using winrt::check_hresult;
 Runtime::Runtime() { check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED)); try { check_hresult(MFStartup(MF_VERSION)); } catch (...) { CoUninitialize(); throw; } }
 Runtime::~Runtime() { MFShutdown(); CoUninitialize(); }
+bool hasHardwareEncoder(Codec codec,TransformEnumerator enumerate) {
+    MFT_REGISTER_TYPE_INFO output{MFMediaType_Video,codec==Codec::H264?MFVideoFormat_H264:MFVideoFormat_HEVC};
+    IMFActivate** transforms{};UINT32 count{};
+    const auto hr=enumerate(MFT_CATEGORY_VIDEO_ENCODER,MFT_ENUM_FLAG_HARDWARE,nullptr,&output,&transforms,&count);
+    for(UINT32 i=0;i<count;++i)if(transforms&&transforms[i])transforms[i]->Release();
+    CoTaskMemFree(transforms);check_hresult(hr);return count!=0;
+}
 Frames::Frames(Options const& o, RECT r) : region(r), options(o) {
     width = outputExtent(unsigned(r.right-r.left), o.scale);
     height = outputExtent(unsigned(r.bottom-r.top), o.scale);
@@ -172,4 +179,13 @@ void Writer::packets(std::vector<gpu::Packet> const& packets){for(auto const& p:
 void Writer::texture(ID3D11Texture2D* t,LONGLONG time,LONGLONG duration){packets(native->encode(t,time,duration));}
 void Writer::texture12(ID3D12Resource* t,LONGLONG time,LONGLONG duration){packets(native->encode12(t,time,duration));}
 void Writer::finish() { if(native)packets(native->flush());check_hresult(sink->Finalize()); sink.Reset(); }
+}
+namespace aelura::recording {
+HardwareEncoders hardwareEncoders() noexcept {
+    HardwareEncoders result;
+    try{media::Runtime runtime;result.h264=media::hasHardwareEncoder(Codec::H264);result.hevc=media::hasHardwareEncoder(Codec::HEVC);}
+    catch(winrt::hresult_error const& e){result.error=e.code();}
+    catch(...){result.error=E_FAIL;}
+    return result;
+}
 }

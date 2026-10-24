@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <cmath>
 #include <dwmapi.h>
+#include <mferror.h>
 namespace aelura::recording {
 using namespace winrt;using namespace Microsoft::UI::Xaml;using namespace Controls;
 using aelura::i18n::tr;
@@ -31,7 +32,8 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
     StackPanel root{nullptr};StackPanel settings{nullptr};ComboBox fps,codec,encoder,scaling,scale,graphics,replayStorage;
     NumberBox bitrate,seconds,memoryLimit;ToggleSwitch microphone,systemAudio,cursor,beta,replay;bool syncStorage{},syncAudio{};
     TextBox directory;Button browse,start,windowStart,stop,pause,saveReplay,preview,folder,recovery,recover,cancelSave;
-    TextBlock hint,state,region,details,betaHint,replayState,graphicsHint,memoryHint,audioHint;ProgressRing progress;
+    TextBlock hint,state,region,details,betaHint,replayState,graphicsHint,memoryHint,audioHint,encoderHint;ProgressRing progress;
+    HardwareEncoders hardware;bool hardwareChecked{};
     Window floating{nullptr},previewWindow{nullptr};HWND floatingHwnd{};Grid floatingRoot{nullptr};
     TextBlock floatState;Button floatPause,floatStop,floatSave,floatOpen;
     MediaPlayerElement player{nullptr};Windows::Media::Playback::MediaPlayer mediaPlayer{nullptr};
@@ -58,6 +60,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         for(int i=0;i<4;++i)scaling.Items().Append(box_value(L""));scaling.SelectedIndex(int(options.scaling));scaling.Width(180);
         for(auto n:{100,75,50,25}){scale.Items().Append(box_value(std::to_wstring(n)+L"%"));if(n==int(options.scale))scale.SelectedIndex(int(scale.Items().Size())-1);}if(scale.SelectedIndex()<0)scale.SelectedIndex(0);scale.Width(150);
         row({fps,bitrate,seconds});row({codec,encoder});row({scale,scaling});
+        encoderHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(encoderHint);
         graphics.Width(350);for(int i=0;i<2;++i)graphics.Items().Append(box_value(L""));graphics.SelectedIndex(int(options.graphics));settings.Children().Append(graphics);
         graphicsHint=TextBlock();graphicsHint.TextWrapping(TextWrapping::Wrap);settings.Children().Append(graphicsHint);
         replayStorage.Width(240);for(int i=0;i<2;++i)replayStorage.Items().Append(box_value(L""));replayStorage.SelectedIndex(int(options.replayStorage));
@@ -92,6 +95,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         localize();tick();
     }
     void beginTick(){
+        probeHardware();
         auto weak=weak_from_this();
         timer.Tick([weak](auto const&,auto const&){
             auto self=weak.lock();if(!self||self->closing)return;
@@ -99,6 +103,25 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
             catch(hresult_error const& e){if(!self->issueKey||std::string_view(self->issueKey)!="record.ui_failed")diagnostics::failure("recording.tick",e.code(),e.message());self->issueKey="record.ui_failed";}
             catch(std::exception const&){diagnostics::failure("recording.tick",E_FAIL);self->issueKey="record.ui_failed";}
         });timer.Start();
+    }
+    fire_and_forget probeHardware(){
+        auto lifetime=shared_from_this();auto ui=apartment_context();
+        try{
+            co_await resume_background();auto result=hardwareEncoders();co_await ui;
+            if(closing||quitting)co_return;
+            hardware=result;hardwareChecked=true;
+        }catch(hresult_error const& e){diagnostics::failure("recording.hardware",e.code(),e.message());co_return;}
+        try{tick();}catch(...){issueKey="record.ui_failed";}
+    }
+    bool gpuAvailable()const{return hardwareChecked&&hardware.supports(codec.SelectedIndex()==1?Codec::HEVC:Codec::H264);}
+    char const* gpuIssue()const{return !hardwareChecked?"record.gpu_checking":FAILED(hardware.error)?"record.gpu_check_failed":"record.gpu_unavailable";}
+    bool checkEncoder(){if(encoder.SelectedIndex()!=1||gpuAvailable())return true;issueKey=gpuIssue();return false;}
+    void updateHardwareControls(){
+        const bool available=gpuAvailable();
+        if(auto item=encoder.Items().GetAt(1).try_as<ComboBoxItem>())item.IsEnabled(available);
+        if(auto item=graphics.Items().GetAt(1).try_as<ComboBoxItem>())item.IsEnabled(available);
+        encoderHint.Text(available?L"":tr(gpuIssue()));
+        encoderHint.Visibility(available?Visibility::Collapsed:Visibility::Visible);
     }
     void dispose() noexcept {
         if(closing)return;closing=true;
@@ -133,18 +156,21 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
     }
     void select(){
         if(quitting||session.busy()||selector||selectPending||pickingWindow)return;
+        if(!checkEncoder())return;
         try{auto next=read();save(config,next);options=next;issueKey=nullptr;selectPending=true;selectAt=std::chrono::steady_clock::now()+std::chrono::milliseconds(220);ShowWindow(main,SW_MINIMIZE);}
         catch(...){issueKey="record.settings_failed";restore();}
     }
     void toggleReplay(){
         try{
             if(quitting)return;
+            if(replay.IsOn()&&!checkEncoder()){syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;return;}
             auto next=read();next.replayEnabled=replay.IsOn();save(config,next);options=next;issueKey=nullptr;
             if(!options.replayEnabled)replaySession.stop(true);else startReplay();
         }catch(...){issueKey="record.settings_failed";syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;}
     }
     void startReplay(){
         if(quitting||replaySession.busy())return;
+        if(options.encoder==Encoder::GPU&&!gpuAvailable()){issueKey=gpuIssue();return;}
         try{MONITORINFO mi{sizeof(mi)};if(!GetMonitorInfoW(MonitorFromWindow(main,MONITOR_DEFAULTTONEAREST),&mi))throw_last_error();replaySession.start(options,mi.rcMonitor,true);seenReplay=0;}
         catch(hresult_error const& e){issueKey="record.replay_start_failed";diagnostics::failure("replay.start",e.code(),e.message());}
         catch(...){issueKey="record.replay_start_failed";}
@@ -154,6 +180,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
     }
     fire_and_forget chooseWindow(){
         auto lifetime=shared_from_this();if(quitting||session.busy()||selector||selectPending||pickingWindow)co_return;
+        if(!checkEncoder())co_return;
         pickingWindow=true;struct Guard{bool& b;~Guard(){b=false;}} guard{pickingWindow};
         try{
             struct Candidate{HWND hwnd;std::wstring label;};std::vector<Candidate> windows;
@@ -184,7 +211,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         localizing=true;
         hint.Text(tr("record.hint"));fps.Header(box_value(tr("record.fps")));bitrate.Header(box_value(tr("record.bitrate")));seconds.Header(box_value(tr("record.seconds")));
         codec.Header(box_value(tr("record.codec")));encoder.Header(box_value(tr("record.encoder")));scaling.Header(box_value(tr("record.scaling")));scale.Header(box_value(tr("record.scale")));
-        auto combo=[](ComboBox const& c,std::initializer_list<char const*> keys){auto index=c.SelectedIndex();c.Items().Clear();for(auto key:keys)c.Items().Append(box_value(tr(key)));c.SelectedIndex(index);};
+        auto combo=[](ComboBox const& c,std::initializer_list<char const*> keys){auto index=c.SelectedIndex();c.Items().Clear();for(auto key:keys){ComboBoxItem item;item.Content(box_value(tr(key)));c.Items().Append(item);}c.SelectedIndex(index);};
         combo(codec,{"record.h264","record.h265"});combo(encoder,{"record.cpu","record.gpu"});combo(scaling,{"record.nearest","record.linear","record.cubic","record.fant"});
         combo(graphics,{"record.graphics11","record.graphics12"});graphics.Header(box_value(tr("record.graphics")));graphicsHint.Text(tr("record.dx12_hint"));
         combo(replayStorage,{"record.cache_disk","record.cache_memory"});replayStorage.Header(box_value(tr("record.cache_storage")));memoryLimit.Header(box_value(tr("record.memory_limit")));memoryHint.Text(tr("record.memory_hint"));
@@ -197,6 +224,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         if(floating){floating.Title(tr("record.title"));label(floatStop,"record.stop");label(floatSave,"record.save_replay");label(floatOpen,"record.open");}
         if(previewWindow)previewWindow.Title(tr("record.preview"));
         localizing=false;
+        updateHardwareControls();
     }
     void floatingWindow(){
         if(floating)return;
@@ -227,13 +255,16 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         // Repeatedly disabling/relabeling its underlying page can reenter XAML
         // focus/automation processing. Recording workers continue independently.
         if(pickingWindow&&!quitting)return;
-        if(autoReplay&&!quitting){autoReplay=false;startReplay();}
+        updateHardwareControls();
+        if(autoReplay&&!quitting&&(options.encoder!=Encoder::GPU||hardwareChecked)){autoReplay=false;startReplay();}
         if(selectPending&&std::chrono::steady_clock::now()>=selectAt){selectPending=false;try{selector=std::make_unique<Selector>(captureHost);}catch(...){issueKey="record.select_failed";restore();}}
         if(selector)selector->poll();
         if(selector&&selector->done){auto selected=selector->result;auto error=selector->error;selector.reset();if(FAILED(error))issueKey="record.select_failed";if(selected){try{session.start(options,*selected,false);seen=0;region.Text(std::to_wstring(selected->left)+L", "+std::to_wstring(selected->top)+L" · "+std::to_wstring(selected->right-selected->left)+L" × "+std::to_wstring(selected->bottom-selected->top));showControls();}catch(...){issueKey="record.start_failed";restore();}}else if(!quitting)restore();}
         auto s=session.snapshot();const bool running=s.state==State::Recording||s.state==State::Paused;const bool busy=session.busy();
         auto rs=replaySession.snapshot();if(!quitting)notification.update(rs,requested);
         auto replayText=std::wstring(tr(rs.state==State::Failed?"record.replay_start_failed":rs.state==State::Starting?"record.starting":rs.state==State::Stopping?"record.stopping":rs.state==State::Recording?"record.buffering":"record.replay_off"));
+        if(rs.error==MF_E_TOPO_CODEC_NOT_FOUND)replayText+=L"\n"+std::wstring(tr(options.encoder==Encoder::GPU?"record.gpu_unavailable":"record.codec_unavailable"));
+        if(options.replayEnabled&&options.encoder==Encoder::GPU&&!gpuAvailable()&&!replaySession.busy())replayText=tr(gpuIssue());
         if(rs.state==State::Recording)replayText+=L" · "+elapsed(rs.bufferedSeconds)+L" · "+std::to_wstring(rs.width)+L" × "+std::to_wstring(rs.height);
         if(rs.captureWaiting)replayText+=L"\n"+std::wstring(tr("record.capture_waiting"));
         if(rs.nativeDx12)replayText+=L"\n"+std::wstring(tr("record.graphics12"));
@@ -246,16 +277,18 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
             if(auto control=child.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
             if(auto row=child.try_as<StackPanel>())for(auto const& item:row.Children())if(auto control=item.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
         }
-        beta.IsEnabled(!quitting&&!busy&&encoder.SelectedIndex()==1);
+        beta.IsEnabled(!quitting&&!busy&&encoder.SelectedIndex()==1&&gpuAvailable());
         systemAudio.IsEnabled(!quitting&&!busy&&!replaySession.busy());microphone.IsEnabled(systemAudio.IsEnabled());
         replayStorage.IsEnabled(!quitting&&!busy&&!replaySession.busy());memoryLimit.IsEnabled(replayStorage.IsEnabled()&&replayStorage.SelectedIndex()==1);memoryHint.Visibility(replayStorage.SelectedIndex()==1?Visibility::Visible:Visibility::Collapsed);
-        start.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);windowStart.IsEnabled(start.IsEnabled());replay.IsEnabled(!quitting&&rs.state!=State::Stopping);syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;pause.IsEnabled(!quitting&&running);stop.IsEnabled(!quitting&&(running||s.state==State::Starting));saveReplay.IsEnabled(!quitting&&rs.state==State::Recording&&!rs.saving&&rs.frames>0);
+        const bool encodingAvailable=encoder.SelectedIndex()!=1||gpuAvailable();
+        start.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow&&encodingAvailable);windowStart.IsEnabled(start.IsEnabled());replay.IsEnabled(!quitting&&rs.state!=State::Stopping&&(options.replayEnabled||encodingAvailable));syncReplay=true;replay.IsOn(options.replayEnabled);syncReplay=false;pause.IsEnabled(!quitting&&running);stop.IsEnabled(!quitting&&(running||s.state==State::Starting));saveReplay.IsEnabled(!quitting&&rs.state==State::Recording&&!rs.saving&&rs.frames>0);
         label(pause,s.state==State::Paused?"record.resume":"record.pause");progress.IsActive(s.state==State::Starting||s.state==State::Stopping||s.saving);progress.Visibility(progress.IsActive()?Visibility::Visible:Visibility::Collapsed);
         const char* key=s.state==State::Starting?"record.starting":s.state==State::Paused?"record.paused":s.state==State::Stopping?"record.stopping":s.state==State::Failed?"record.failed":s.state==State::Completed?"record.completed":s.state==State::Recording?(s.replay?"record.buffering":"record.recording"):"record.idle";
         auto text=std::wstring(tr(key))+L" · "+elapsed(s.seconds);if(s.replay)text+=L" · "+std::wstring(tr("record.buffer"))+elapsed(s.bufferedSeconds);if(s.saving)text+=L" · "+std::wstring(tr("record.saving"))+L" "+std::to_wstring(unsigned(s.saveProgress*100))+L"%";
         cancelSave.Visibility(rs.saving?Visibility::Visible:Visibility::Collapsed);recover.IsEnabled(!quitting&&!replaySession.busy());
         if(s.error==E_ABORT)text+=L"\n"+std::wstring(tr("record.save_canceled"));
         else if(FAILED(s.error)){std::wostringstream error;error<<L" · 0x"<<std::hex<<unsigned(s.error);text+=error.str();text+=L"\n"+std::wstring(tr(running?"record.save_failed":"record.codec_hint"));}
+        if(s.error==MF_E_TOPO_CODEC_NOT_FOUND)text+=L"\n"+std::wstring(tr(options.encoder==Encoder::GPU?"record.gpu_unavailable":"record.codec_unavailable"));
         if(issueKey)text+=L"\n"+std::wstring(tr(issueKey));state.Text(text);
         if(s.captureWaiting){text+=L"\n"+std::wstring(tr("record.capture_waiting"));state.Text(text);}
         if(FAILED(s.systemAudioError)){text+=L"\n"+std::wstring(tr("record.system_audio_failed"));state.Text(text);}

@@ -13,6 +13,28 @@ void colorTests(fs::path const&);
 void audioTests(fs::path const&,bool);
 void replayConsumeTests(fs::path const&);
 void check(bool value,char const* reason){if(!value)throw std::runtime_error(reason);}
+HRESULT WINAPI noHardware(GUID category,UINT32 flags,MFT_REGISTER_TYPE_INFO const* input,MFT_REGISTER_TYPE_INFO const* output,IMFActivate*** list,UINT32* count){
+    check(category==MFT_CATEGORY_VIDEO_ENCODER&&flags==MFT_ENUM_FLAG_HARDWARE&&!input,"GPU capability included software transforms");
+    check(output&&output->guidMajorType==MFMediaType_Video,"GPU capability lost output filter");
+    *list=nullptr;*count=0;return S_OK;
+}
+HRESULT WINAPI h264Only(GUID category,UINT32 flags,MFT_REGISTER_TYPE_INFO const* input,MFT_REGISTER_TYPE_INFO const* output,IMFActivate*** list,UINT32* count){
+    noHardware(category,flags,input,output,list,count);
+    if(output->guidSubtype==MFVideoFormat_HEVC)return S_OK;
+    check(output->guidSubtype==MFVideoFormat_H264,"unexpected hardware codec");
+    // Supply real activation objects to exercise ownership on the positive path.
+    return MFTEnumEx(category,MFT_ENUM_FLAG_SYNCMFT,nullptr,output,list,count);
+}
+HRESULT WINAPI enumerationFailure(GUID,UINT32,MFT_REGISTER_TYPE_INFO const*,MFT_REGISTER_TYPE_INFO const*,IMFActivate*** list,UINT32* count){*list=nullptr;*count=0;return E_ACCESSDENIED;}
+void capabilityTests(){
+    check(!media::hasHardwareEncoder(Codec::H264,noHardware)&&!media::hasHardwareEncoder(Codec::HEVC,noHardware),"no-GPU device offered hardware encoding");
+    check(media::hasHardwareEncoder(Codec::H264,h264Only)&&!media::hasHardwareEncoder(Codec::HEVC,h264Only),"GPU support was not codec-specific");
+    bool rejected=false;try{media::hasHardwareEncoder(Codec::H264,enumerationFailure);}catch(winrt::hresult_error const& e){rejected=e.code()==E_ACCESSDENIED;}
+    check(rejected,"enumeration failure reported as supported");
+    HardwareEncoders unavailable;unavailable.h264=true;unavailable.error=E_FAIL;check(!unavailable.supports(Codec::H264),"failed hardware probe offered encoding");
+    const auto actual=hardwareEncoders();winrt::check_hresult(actual.error);
+    std::cout<<"PASS: GPU capability no-device, codec filtering and failure handling; host H264="<<actual.h264<<" HEVC="<<actual.hevc<<"\n";
+}
 uint64_t decode(fs::path const& file,bool audio=false){
     media::Ptr<IMFSourceReader> reader;winrt::check_hresult(MFCreateSourceReaderFromURL(file.c_str(),nullptr,&reader));
     media::Ptr<IMFMediaType> type;winrt::check_hresult(MFCreateMediaType(&type));winrt::check_hresult(type->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Video));winrt::check_hresult(type->SetGUID(MF_MT_SUBTYPE,MFVideoFormat_NV12));
@@ -157,6 +179,7 @@ int wmain(int argc,wchar_t** argv){
     fs::path root=fs::temp_directory_path()/(L"AeluraRecordingTests-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
     try{
         media::Runtime runtime;
+        if(argc==2&&std::wstring(argv[1])==L"--capabilities-only"){capabilityTests();return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--color-only"){fs::create_directory(root);colorTests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--replay-consume-only"){fs::create_directory(root);replayConsumeTests(root);fs::remove_all(root);return 0;}
         if(argc==2&&std::wstring(argv[1])==L"--audio-loopback-only"){fs::create_directory(root);audioTests(root,true);fs::remove_all(root);return 0;}
@@ -176,6 +199,7 @@ int wmain(int argc,wchar_t** argv){
             Session recovery;check(recovery.recover(argv[2],argv[3]),"recovery rejected");while(recovery.busy())std::this_thread::sleep_for(std::chrono::milliseconds(10));auto s=recovery.snapshot();winrt::check_hresult(s.error);check(s.state==State::Completed,"recovery failed");std::cout<<"RECOVERED "<<s.output<<"\n";inspect(s.output);return 0;
         }
         check(argc==1,"unknown arguments");check(fs::create_directory(root),"temporary sandbox creation failed");
+        capabilityTests();
         audioTests(root,false);
         colorTests(root);
         Options o;o.systemAudio=false;o.directory=root/L"中文视频";fs::create_directory(o.directory);

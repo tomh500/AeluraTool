@@ -15,6 +15,8 @@ template<class T> using Ptr = Microsoft::WRL::ComPtr<T>;
 struct Runtime {
     Runtime(); ~Runtime();
 };
+using TransformEnumerator = decltype(&MFTEnumEx);
+bool hasHardwareEncoder(Codec,TransformEnumerator enumerate = &MFTEnumEx);
 struct Frames {
     HDC screen{}, memory{}; HBITMAP bitmap{}; HGDIOBJ old{}; void* pixels{};
     RECT region{}; unsigned width{}, height{}; Options options;
