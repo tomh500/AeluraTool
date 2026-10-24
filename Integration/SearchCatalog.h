@@ -2,7 +2,8 @@
 #include <array>
 namespace aelura::search {
 struct Entry { wchar_t const* id; char const* title; wchar_t const* keywords; int page, category; };
-inline constexpr std::array<Entry, 12> settings{{
+inline constexpr std::array<Entry, 13> settings{{
+    {L"network", "nav.network", L"网络 internet network ipv6", 0, 4},
     {L"account", "account.title", L"账号 帐号 登录 绑定 微软 QQ Microsoft account login sign in bind", 2, 0},
     {L"images", "nav.images", L"图像 截图 images screenshots", 0, 1},
     {L"files", "nav.files", L"文件 files storage", 0, 2},

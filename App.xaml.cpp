@@ -50,6 +50,7 @@ namespace winrt::AeluraTool::implementation
         // The replacement waits for its predecessor. Keep the XAML dispatcher
         // pumping so shell activation can finish while that handoff is pending.
         co_await winrt::resume_background();
+        if(aelura::ipv6::helperLaunch()) { co_await ui;Exit();co_return; }
         const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         const bool prepared = aelura::privileges::prepareLaunch(startupActivation);
         if (SUCCEEDED(initialized)) CoUninitialize();

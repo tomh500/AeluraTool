@@ -82,6 +82,7 @@ void MainWindow::LocalizeLifecycle() {
     tray_.Localize();
 }
 fire_and_forget MainWindow::RequestClose(bool explicitExit) {
+    if(ipv6_ && ipv6_->busy()) { RestoreWindow();Notice(tr("ipv6.wait"),true);co_return; }
     auto lifetime = get_strong();
     if(recordingCloseBusy_)co_return;
     if (elevationBusy_) co_return;
@@ -101,6 +102,7 @@ fire_and_forget MainWindow::RequestClose(bool explicitExit) {
             CheckBox remember; remember.Content(box_value(tr("close.remember"))); content.Children().Append(hint); content.Children().Append(remember); dialog.Content(content);
             auto result = co_await dialog.ShowAsync(); closeDialogOpen_ = false;
             if (result == ContentDialogResult::None) co_return;
+            if(ipv6_ && ipv6_->busy()) { Notice(tr("ipv6.wait"),true);co_return; }
             action = result == ContentDialogResult::Primary ? 2 : 1;
             // Recheck after the asynchronous dialog: a hotkey may have started a file task.
             if (fileTask_ != FileTask::None) { Notice(tr("files.wait"), true); co_return; }
@@ -120,7 +122,7 @@ fire_and_forget MainWindow::RequestClose(bool explicitExit) {
 }
 fire_and_forget MainWindow::Elevate() {
     if (elevationBusy_ || aelura::privileges::elevated()) co_return;
-    if (fileTask_ != FileTask::None || aelura::files::active() || closeDialogOpen_ || startupBusy_ || recordingCloseBusy_ || (recording_ && recording_->busy())) { Notice(tr("privilege.wait"), true); co_return; }
+    if ((ipv6_ && ipv6_->busy()) || fileTask_ != FileTask::None || aelura::files::active() || closeDialogOpen_ || startupBusy_ || recordingCloseBusy_ || (recording_ && recording_->busy())) { Notice(tr("privilege.wait"), true); co_return; }
     auto lifetime = get_strong(); elevationBusy_ = true;
     autoClicker_.stop();
     if(toggleNotification_)toggleNotification_->close();

@@ -30,7 +30,7 @@ void MainWindow::RenderTools() {
         Grid grid; grid.ColumnSpacing(20); grid.ColumnDefinitions().Append(column({48, GridUnitType::Pixel})); grid.ColumnDefinitions().Append(column({1, GridUnitType::Star})); grid.ColumnDefinitions().Append(column({1, GridUnitType::Auto}));
         FontIcon icon; icon.Glyph(tool.glyph); icon.FontSize(28); icon.VerticalAlignment(VerticalAlignment::Center); grid.Children().Append(icon);
         StackPanel copy; copy.Spacing(6); auto title = text(tr(tool.title), 19); title.FontWeight(Windows::UI::Text::FontWeights::SemiBold()); copy.Children().Append(title); copy.Children().Append(text(tr(tool.description)));
-        const wchar_t* names[] = {L"", tr("nav.images"), tr("nav.files"), tr("nav.games")}; auto category = text(names[tool.category], 12); copy.Children().Append(category); Grid::SetColumn(copy, 1); grid.Children().Append(copy);
+        auto category = text(aelura::i18n::category(tool.category), 12); copy.Children().Append(category); Grid::SetColumn(copy, 1); grid.Children().Append(copy);
         StackPanel actions; actions.Spacing(8); actions.VerticalAlignment(VerticalAlignment::Center);
         Button open; open.Content(box_value(tr(tool.action))); auto id = std::wstring(tool.id); open.Click([this, id](auto const&, auto const&) { ActivateTool(id); }); actions.Children().Append(open);
         if (id == L"capture") {
@@ -104,6 +104,7 @@ void MainWindow::ShowFileSearch() {
     fileSearch_->appearance(Root().RequestedTheme()); fileSearch_->show();
 }
 void MainWindow::ActivateTool(std::wstring const& id) {
+    if (id == L"ipv6") { RestoreWindow(); Page(8); return; }
     if (id == L"autoclicker") { RestoreWindow(); Page(7); return; }
     if (id == L"filesearch") { RestoreWindow(); Page(5); }
     else if (id == L"capture") Invoke(1);

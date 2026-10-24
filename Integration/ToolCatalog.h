@@ -4,7 +4,8 @@
 #include <cwctype>
 namespace aelura::catalog {
 struct Tool { const wchar_t* id; int category; const char* title; const char* description; const wchar_t* keywords; const wchar_t* glyph; const char* action; };
-inline constexpr std::array<Tool, 7> tools{{
+inline constexpr std::array<Tool, 8> tools{{
+    {L"ipv6", 4, "ipv6.title", "ipv6.description", L"网络 连通 检测 诊断 启用 修复 我的世界 ipv6 internet network connectivity dns ping minecraft mc", L"\xE774", "ipv6.open"},
     {L"autoclicker", 3, "autoclicker.title", "autoclicker.description", L"连点 鼠标 长按 游戏 autoclicker auto click rapid fire mouse hold", L"\xE962", "autoclicker.open"},
     {L"record", 1, "record.title", "record.description", L"录屏 录像 录制 视频 重放 回放 五分钟 screen recording recorder replay video h264 h265 nvenc amf", L"\xE714", "record.open"},
     {L"filesearch", 2, "filesearch.title", "filesearch.description", L"快捷 文件 检索 搜索 查找 everything file search find path 文件名 路径", L"\xE721", "filesearch.open"},
