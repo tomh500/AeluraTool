@@ -104,6 +104,7 @@ void MainWindow::ShowFileSearch() {
     fileSearch_->appearance(Root().RequestedTheme()); fileSearch_->show();
 }
 void MainWindow::ActivateTool(std::wstring const& id) {
+    if (id == L"netspeed" || id == L"dnslookup" || id == L"tcpcheck") { RestoreWindow(); Page(id == L"netspeed" ? 9 : id == L"dnslookup" ? 10 : 11); return; }
     if (id == L"ipv6") { RestoreWindow(); Page(8); return; }
     if (id == L"autoclicker") { RestoreWindow(); Page(7); return; }
     if (id == L"filesearch") { RestoreWindow(); Page(5); }

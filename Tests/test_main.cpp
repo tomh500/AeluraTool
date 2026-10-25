@@ -14,14 +14,17 @@ void run_file_shell_tests(fs::path const& root);
 void run_privileges_tests(fs::path const& root);
 void run_autoclicker_tests();
 void run_ipv6_tests(fs::path const& root);
+void run_network_tests();
+void run_network_live_probe();
 
 int main(int argc, char** argv) {
     bool startup{};
     if (!aelura::privileges::prepareLaunch(startup)) return ERROR_ACCESS_DENIED;
+    if(argc==2 && std::string(argv[1])=="--network-live"){run_network_live_probe();return 0;}
     const std::string suite = argc == 3 && std::string(argv[1]) == "--suite" ? argv[2] : "all";
     if ((argc != 1 && argc != 3) || (argc == 3 && std::string(argv[1]) != "--suite") ||
-        (suite != "all" && suite != "hash" && suite != "migration")) {
-        std::cerr << "Usage: CoreTests.exe [--suite all|hash|migration]\n";
+        (suite != "all" && suite != "hash" && suite != "migration" && suite != "network")) {
+        std::cerr << "Usage: CoreTests.exe [--suite all|hash|migration|network] or --network-live\n";
         return 2;
     }
 
@@ -43,6 +46,7 @@ int main(int argc, char** argv) {
         if (suite == "all") run_privileges_tests(root / "privileges");
         if (suite == "all") run_autoclicker_tests();
         if (suite == "all") run_ipv6_tests(root / "ipv6");
+        if (suite == "all" || suite == "network") run_network_tests();
         fs::remove_all(root);
         std::cout << "PASS: selected suites completed\n";
         return 0;

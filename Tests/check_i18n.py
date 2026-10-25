@@ -19,6 +19,7 @@ for path in files:
     keys.update(re.findall(r'"(autoclicker\.[a-z0-9_.]+)"', text))
     keys.update(re.findall(r'"(account\.[a-z0-9_.]+)"', text))
     keys.update(re.findall(r'(?<!L)"(ipv6\.[a-z0-9_.]+)"', text))
+    keys.update(re.findall(r'(?<!L)"(net\.[a-z0-9_.]+)"', text))
 for name in ("SearchCatalog.h", "ToolCatalog.h"):
     text = (root / "Integration" / name).read_text(encoding="utf-8-sig")
     keys.update(re.findall(r'"([a-z][a-z0-9_]*\.[a-z0-9_.]+)"', text))

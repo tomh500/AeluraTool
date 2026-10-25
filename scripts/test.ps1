@@ -1,6 +1,6 @@
 param(
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release',
-    [ValidateSet('all', 'hash', 'migration')][string]$Suite = 'all',
+    [ValidateSet('all', 'hash', 'migration', 'network')][string]$Suite = 'all',
     [switch]$CoreOnly
 )
 $ErrorActionPreference = 'Stop'

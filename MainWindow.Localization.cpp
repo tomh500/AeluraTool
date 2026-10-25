@@ -10,6 +10,8 @@ namespace winrt::AeluraTool::implementation {
 using aelura::i18n::tr;
 void MainWindow::ApplyLanguage() {
     if(ipv6_)ipv6_->localize();
+    for(auto& panel:network_)if(panel)panel->localize();
+    NetworkBackButton().Content(box_value(tr("nav.back")));
     Ipv6BackButton().Content(box_value(tr("nav.back")));
     if(account_)account_->localize();
     if(toggleNotification_)toggleNotification_->close();

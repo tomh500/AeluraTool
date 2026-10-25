@@ -59,6 +59,12 @@ void run_migration_tests(fs::path const& root) {
             check(aelura::hotkeys::shouldNotify(binding,true)==expected,"per-shortcut notification switch ignored");
         }
         check(manager.bindings.at(hashIndex).id == L"hash" && !manager.bindings.at(hashIndex).enabled, "hash hotkey must default to disabled");
+        for(size_t n=11;n<14;++n)check(!manager.bindings.at(n).enabled,"network hotkeys default disabled");
+        check(manager.save(11,MOD_CONTROL|MOD_ALT,VK_F18,true,error),"network binding enable");
+        check(!manager.save(12,MOD_CONTROL|MOD_ALT,VK_F18,true,error)&&manager.bindings[11].registered&&!manager.bindings[12].registered,"network conflict rollback");
+        auto networkConfig=manager.config;manager.config=root/L"network-blocker"/L"keys.ini";write(root/L"network-blocker");
+        check(!manager.save(11,MOD_CONTROL|MOD_ALT,VK_F17,true,error)&&manager.bindings[11].key==VK_F18&&manager.bindings[11].registered,"network save failure keeps prior registration");
+        manager.config=networkConfig;check(manager.save(11,MOD_CONTROL|MOD_ALT,VK_F18,false,error),"network disable releases binding");
         check(manager.bindings.at(6).id==L"record"&&!manager.bindings.at(6).enabled&&manager.bindings.at(7).id==L"replay-save"&&manager.bindings.at(7).enabled,"manual recording defaults off; replay save must work without opening the toolbox");
         if (!manager.save(2, MOD_CONTROL | MOD_ALT, VK_F22, true, error)) { std::wcerr << error << L" Win32=" << GetLastError() << L" hwnd=" << window << L"\n"; throw std::runtime_error("binding failed"); }
         check(!manager.save(3, MOD_CONTROL | MOD_ALT, VK_F22, true, error, false) && manager.bindings[3].notify, "duplicate binding changed notification setting");

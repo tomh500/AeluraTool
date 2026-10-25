@@ -12,6 +12,8 @@
 #include "Integration/RecordingPanel.h"
 #include "Integration/AccountPanel.h"
 #include "Integration/Ipv6/Panel.h"
+#include "Integration/Network/Panel.h"
+#include <array>
 #include "Integration/FileSearchWindow.h"
 #include <memory>
 #include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
@@ -25,6 +27,7 @@ namespace winrt::AeluraTool::implementation {
     private:
         HWND hwnd_{};
         std::unique_ptr<aelura::ipv6::Panel> ipv6_;
+        std::array<std::unique_ptr<aelura::network::Panel>,3> network_;
         HANDLE process_{}, job_{}, singleton_{};
         DWORD pid_{};
         aelura::hotkeys::Manager hotkeys_;

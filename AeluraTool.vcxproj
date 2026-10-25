@@ -126,6 +126,8 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Integration\ToolCatalog.h" />
+    <ClInclude Include="Integration\Network\Core.h" />
+    <ClInclude Include="Integration\Network\Panel.h" />
     <ClInclude Include="Integration\Ipv6\Core.h" />
     <ClInclude Include="Integration\Ipv6\Panel.h" />
     <ClInclude Include="Integration\AutoClicker.h" />
@@ -168,6 +170,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MainWindow.Tools.cpp" />
+    <ClCompile Include="Integration\Network\Core.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><ObjectFileName>$(IntDir)NetworkCore.obj</ObjectFileName></ClCompile>
+    <ClCompile Include="Integration\Network\Speed.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Integration\Network\Panel.cpp"><ObjectFileName>$(IntDir)NetworkPanel.obj</ObjectFileName></ClCompile>
     <ClCompile Include="MainWindow.AutoClicker.cpp" />
     <ClCompile Include="Integration\ToggleNotification.cpp" />
     <ClCompile Include="MainWindow.Hash.cpp" />
@@ -205,10 +210,10 @@
     <ClCompile Include="Integration\HotkeyManager.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\FileMigration.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\FileHash.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
-    <ClCompile Include="Integration\Ipv6\Core.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Integration\Ipv6\Core.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><ObjectFileName>$(IntDir)Ipv6Core.obj</ObjectFileName></ClCompile>
     <ClCompile Include="Integration\Ipv6\Network.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="Integration\Ipv6\Repair.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
-    <ClCompile Include="Integration\Ipv6\Panel.cpp" />
+    <ClCompile Include="Integration\Ipv6\Panel.cpp"><ObjectFileName>$(IntDir)Ipv6Panel.obj</ObjectFileName></ClCompile>
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
