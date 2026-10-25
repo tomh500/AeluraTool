@@ -40,9 +40,9 @@ struct Panel::Impl:std::enable_shared_from_this<Impl> {
         get<TextBlock>(L"Hint").Text(tr(mode==0?"net.speed_hint":mode==1?"net.dns_hint":"net.tcp_hint"));
         get<TextBox>(L"Host").Header(box_value(tr("net.host")));get<TextBox>(L"Host").Visibility(mode?Visibility::Visible:Visibility::Collapsed);
         get<NumberBox>(L"Port").Header(box_value(tr("ipv6.port")));get<NumberBox>(L"Port").Visibility(mode==2?Visibility::Visible:Visibility::Collapsed);
-        auto family=get<ComboBox>(L"Family");family.Header(box_value(tr("net.family")));family.Items().GetAt(0).as<ComboBoxItem>().Content(box_value(tr("net.both")));
+        auto family=get<ComboBox>(L"Family");auto selectedFamily=family.SelectedIndex();family.Header(box_value(tr("net.family")));family.Items().GetAt(0).as<ComboBoxItem>().Content(box_value(tr("net.both")));family.SelectedIndex(-1);family.SelectedIndex(selectedFamily);
         auto size=get<ComboBox>(L"Size");size.Header(box_value(tr("net.size")));size.Visibility(mode==0?Visibility::Visible:Visibility::Collapsed);
-        char const* sizes[]={"net.small","net.medium","net.large"};for(int i=0;i<3;++i)size.Items().GetAt(i).as<ComboBoxItem>().Content(box_value(tr(sizes[i])));
+        auto selectedSize=size.SelectedIndex();char const* sizes[]={"net.small","net.medium","net.large"};for(int i=0;i<3;++i)size.Items().GetAt(i).as<ComboBoxItem>().Content(box_value(tr(sizes[i])));size.SelectedIndex(-1);size.SelectedIndex(selectedSize);
         get<Button>(L"Start").Content(box_value(tr("net.start")));get<Button>(L"Start").IsEnabled(!running);
         get<Button>(L"Cancel").Content(box_value(tr("common.cancel")));get<Button>(L"Cancel").Visibility(running?Visibility::Visible:Visibility::Collapsed);
         get<Button>(L"Copy").Content(box_value(tr("ipv6.copy")));get<Button>(L"Copy").IsEnabled(!running&&(!results.empty()||!lookups.empty()));
