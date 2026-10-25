@@ -6,7 +6,7 @@ $recipePath = Join-Path $outputRoot 'AeluraTool.build.appxrecipe'
 if (!(Test-Path -LiteralPath $recipePath)) { throw 'Build this configuration first.' }
 [xml]$recipe = Get-Content -LiteralPath $recipePath -Raw
 [xml]$manifest = Get-Content -LiteralPath (Join-Path $repoRoot 'Package.appxmanifest') -Raw
-$running = Get-Process AeluraTool, StrikeSense -ErrorAction SilentlyContinue
+$running = Get-Process AeluraTool, StrikeSense -ErrorAction SilentlyContinue | Where-Object { !$_.HasExited }
 if ($running) { throw 'Close AeluraTool and StrikeSense normally before deployment; active tasks will not be interrupted.' }
 $layoutRoot = [IO.Path]::GetFullPath((Join-Path $outputRoot ("AppX-" + $manifest.Package.Identity.Version)))
 foreach ($item in $recipe.Project.ItemGroup.ChildNodes) {
