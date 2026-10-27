@@ -1,5 +1,11 @@
 # 验证记录
 
+## 两条 PR 组合验证（2026-10-27）
+
+- 合并网络工具分支的显示尺寸修复到即时重放分支后，Debug / Release 构建和完整测试通过，日志 `artifacts/stack-final-build-*.log`、`stack-final-tests-*.log`；两次构建均同步部署。
+- 最终 Release 包的桌面快捷方式使用 explorer 和 AppsFolder 包身份，图标及工作目录指向部署目录；部署和构建 EXE 的 SHA-256 均为 `0285697071B6079A7D0B009ECB196C388F9D20318059DDEB9B7E6C088B4CE0EE`。
+- 云端 CI 与审查尚未确认；没有实机测试睡眠或休眠，也没有重新操作主题、搜索及分类导航界面。保留用户的 `BUILD_AND_DISTRIBUTE.md` 修改。
+
 ## PR 继承分支复验（2026-10-27）
 
 - 在即时重放修复分支合入网络工具分支的 GPU 编码及云端采集测试修复；Debug / Release 构建和完整测试通过，日志为 `artifacts/pr4-final-build-*.log`、`pr4-final-tests-*.log`。PR 工作流的签名打包和发布仅在 main 推送时运行。
