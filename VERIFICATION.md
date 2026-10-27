@@ -1,5 +1,17 @@
 # 验证记录
 
+## 两条 PR 组合验证（2026-10-27）
+
+- 合并网络工具分支的显示尺寸修复到即时重放分支后，Debug / Release 构建和完整测试通过，日志 `artifacts/stack-final-build-*.log`、`stack-final-tests-*.log`；两次构建均同步部署。
+- 最终 Release 包的桌面快捷方式使用 explorer 和 AppsFolder 包身份，图标及工作目录指向部署目录；部署和构建 EXE 的 SHA-256 均为 `0285697071B6079A7D0B009ECB196C388F9D20318059DDEB9B7E6C088B4CE0EE`。
+- 云端 CI 与审查尚未确认；没有实机测试睡眠或休眠，也没有重新操作主题、搜索及分类导航界面。保留用户的 `BUILD_AND_DISTRIBUTE.md` 修改。
+
+## PR 继承分支复验（2026-10-27）
+
+- 在即时重放修复分支合入网络工具分支的 GPU 编码及云端采集测试修复；Debug / Release 构建和完整测试通过，日志为 `artifacts/pr4-final-build-*.log`、`pr4-final-tests-*.log`。PR 工作流的签名打包和发布仅在 main 推送时运行。
+- Debug、Release 分别同步部署，最终 Release 桌面快捷方式使用包身份、部署目录和图标；部署与构建 EXE SHA-256 均为 `5BEC662D86E24E06C43C27F23F259D4F7D6C2370D7B328CB719B501E62543D6B`。
+- 未实际触发睡眠或休眠，也未进行主题、搜索和分类导航的可见界面检查；云端 CI 和重新审查待完成。保留 `BUILD_AND_DISTRIBUTE.md` 用户修改。
+
 ## 云端采集测试显示尺寸（2026-10-27）
 
 - 云端 2358×1238 的合成编码和重放通过，但采集画面超出运行器显示区域而失败；采集测试现在明确跳过不能完整放入显示器的样本。并未跳过对应尺寸的合成视频检查。
@@ -468,4 +480,10 @@
 - 最终 Debug / Release 构建通过，每次成功后自动同步部署与桌面快捷方式。最终签名打包部署 Release 1.6.4.4；逐个核对 37 个部署文件与构建源文件哈希一致，并核对桌面快捷方式的包身份、explorer 目标、图标和工作目录。
 - 签名安装包为 `artifacts/distribution/AeluraTool-1.6.4.4-x64-20261024-171610.zip`，SHA256 `D7B1000CEA27F29EDFCDACC0DEB89AFB06C1BE2050BC35C6ECAC04814E09A1A0`。实际解压后的 PS1 / BAT / CMD 预检及依赖/证书缺失、错误指纹、未签名包拒绝检查通过；没有修改系统证书信任。
 - 限制：本轮无 GPU 条件使用隔离枚举夹具验证；尚未在用户 VMware 内安装 1.6.4.4 验证灰显选项和提示。已有虚拟机 1.6.4.3 的 CPU 重放启动与颜色正确由用户确认。桌面自动输入仍受 CursorPlacementBlocked 限制，未重新人工验证主题、语言即时切换、分类导航和搜索界面；枚举通过不保证所有分辨率、码率和驱动状态都能成功初始化编码器。保留已有 BUILD_AND_DISTRIBUTE.md 改动。
+
+# 2026-10-27 即时重放睡眠恢复
+
+- Debug、Release 构建成功并分别部署；两种配置完整 `scripts/test.ps1` 通过，包括迁移核心、搜索、快捷键失败回滚、录屏及截图通信。日志：`artifacts/sleep-build-debug-final.log`、`sleep-build-release.log`、`sleep-tests-debug.log`、`sleep-tests-release.log`。
+- 最终注册 Release 包，桌面快捷方式通过 AppsFolder 包身份启动，工作目录及图标指向 Release 部署目录。部署和构建 EXE 的 SHA-256 均为 `0821D2FC11E6EC94187836FC1DDD9DA5DC79F7E846D6D0B0EFB19A90DDDD1449`。
+- 未实际触发睡眠或休眠、验证唤醒重试，亦未进行主题、搜索和分类导航的可见界面操作。内存重放会在会话重建时丢失未保存缓存；磁盘缓存留在恢复目录。保留用户的 `BUILD_AND_DISTRIBUTE.md` 修改。
 

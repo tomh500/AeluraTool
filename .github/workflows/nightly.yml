@@ -1,6 +1,7 @@
 name: Build and nightly release
 
 on:
+  pull_request:
   push:
     branches: [main]
     paths-ignore:
@@ -66,6 +67,7 @@ jobs:
           ./scripts/build.ps1 -Configuration Debug
           ./scripts/test.ps1 -Configuration Debug
       - name: Package signed nightly and check installer
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           MSIX_SIGNING_PFX_BASE64: ${{ secrets.MSIX_SIGNING_PFX_BASE64 }}
@@ -73,6 +75,7 @@ jobs:
           NIGHTLY_NAME: AeluraTool-nightly-${{ steps.version.outputs.stamp }}-${{ github.run_id }}-${{ github.run_attempt }}-x64
         run: ./scripts/package-nightly.ps1
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: nightly-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/nightly/*
@@ -89,7 +92,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
 
   release:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
