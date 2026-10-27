@@ -20,7 +20,10 @@ $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $fixture = [IO.Path]::GetFullPath((Join-Path $temporaryRoot ('Aelura BAT fixture ' + [guid]::NewGuid().ToString('N'))))
 if (!$fixture.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid fixture directory.' }
 New-Item -ItemType Directory -Path $fixture | Out-Null
+$originalInputEncoding = [Console]::InputEncoding
 try {
+    # Reproduce the hosted runner's UTF-8 input encoding, including its BOM.
+    [Console]::InputEncoding = New-Object Text.UTF8Encoding($true)
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../scripts/Install.bat') -Destination $fixture
     @'
 param([switch]$NoPause)
@@ -33,6 +36,9 @@ exit 0
         (Get-Content -LiteralPath $log -Raw) -notmatch 'CONSENT_RECEIVED') { throw 'The real BAT process driver corrupted consent input.' }
     'param([switch]$NoPause); exit 23' | Set-Content -LiteralPath (Join-Path $fixture 'Install.ps1') -Encoding UTF8
     if ((Invoke-InstallerBat $fixture $log 30000) -ne 23) { throw 'BAT failure exit code was lost.' }
-} finally { Remove-Item -LiteralPath $fixture -Recurse -Force }
+} finally {
+    [Console]::InputEncoding = $originalInputEncoding
+    Remove-Item -LiteralPath $fixture -Recurse -Force
+}
 Write-Output 'PASS: installation harness parses and rejects non-CI execution before accessing artifacts or changing the system.'
 Write-Output 'PASS: shared Windows PowerShell BAT driver sends exact consent and preserves failure exit codes.'
