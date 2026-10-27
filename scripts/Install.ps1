@@ -1,4 +1,4 @@
-param([switch]$CheckOnly)
+param([switch]$CheckOnly, [switch]$NoPause)
 $ErrorActionPreference = 'Stop'
 $exitCode = 0
 $language = if ([Globalization.CultureInfo]::CurrentUICulture.Name -like 'zh-*') { 'zh-CN' } else { 'en-US' }
@@ -19,6 +19,12 @@ try {
     Write-Host ((T 'install.signer') -f $certificate.Subject, $certificate.Thumbprint)
     $dependencies = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'Dependencies\x64') -File | Where-Object Extension -in @('.appx','.msix'))
     if (!$dependencies.Count) { throw (T 'install.dependencies_missing') }
+    . (Join-Path $PSScriptRoot 'Installer.Dependencies.ps1')
+    $plan = Get-InstallerDependencyPlan -PackagePath $package.FullName -DependencyPaths @($dependencies.FullName) -InstalledPackages @(Get-AppxPackage)
+    foreach ($requirement in $plan.Requirements) {
+        $key = if ($requirement.Satisfied) { 'install.dependency_ready' } else { 'install.dependency_needed' }
+        Write-Host ((T $key) -f $requirement.Name, $requirement.MinVersion)
+    }
     if ($CheckOnly) { Write-Host (T 'install.check_ok'); exit 0 }
     if (Get-Process AeluraTool, StrikeSense -ErrorAction SilentlyContinue) { throw (T 'install.close') }
     if (!(Test-Path -LiteralPath "Cert:\LocalMachine\TrustedPeople\$expected")) {
@@ -43,22 +49,30 @@ try {
     # WinVerifyTrust may still report UnknownError for a TrustedPeople self-signed
     # publisher: do not require adding this certificate to the root store.
     Write-Host (T 'install.installing')
-    Add-AppxPackage -Path $package.FullName -DependencyPath @($dependencies.FullName)
-    $installed = Get-AppxPackage -Name '27abd2dc-3cdf-47a6-a74b-7cae8037deaa'
-    if (!$installed) { throw (T 'install.not_found') }
-    $shell = New-Object -ComObject WScript.Shell
-    $link = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) ((T 'install.shortcut') + '.lnk')))
-    $link.TargetPath = Join-Path $env:WINDIR 'explorer.exe'
-    $link.Arguments = 'shell:AppsFolder\' + $installed.PackageFamilyName + '!App'
-    $link.WorkingDirectory = $installed.InstallLocation
-    $link.IconLocation = (Join-Path $installed.InstallLocation 'AeluraTool.exe') + ',0'
-    $link.Save()
-    Write-Host (T 'install.success') -ForegroundColor Green
+    $result = Invoke-InstallerDeployment $plan
+    if (!$result.Complete) {
+        Write-Host (T 'install.pending_restart') -ForegroundColor Yellow
+        $exitCode = 3010
+    } else {
+        $installed = $result.InstalledPackage
+        $shell = New-Object -ComObject WScript.Shell
+        $link = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) ((T 'install.shortcut') + '.lnk')))
+        $link.TargetPath = Join-Path $env:WINDIR 'explorer.exe'
+        $link.Arguments = 'shell:AppsFolder\' + $installed.PackageFamilyName + '!App'
+        $link.WorkingDirectory = $installed.InstallLocation
+        $link.IconLocation = (Join-Path $installed.InstallLocation 'AeluraTool.exe') + ',0'
+        $link.Save()
+        Write-Host (T 'install.success') -ForegroundColor Green
+    }
 } catch {
     $exitCode = 1
-    Write-Host ((T 'install.failure') -f $_.Exception.Message) -ForegroundColor Red
-    Write-Host (T 'install.help')
+    $message = $_.Exception.Message
+    if ($message -in @('install.package_invalid', 'install.dependencies_missing')) { $message = T $message }
+    Write-Host ((T 'install.failure') -f $message) -ForegroundColor Red
+    if ($_.Exception.ToString() -match '80073D02' -or $_.FullyQualifiedErrorId -match '80073D02') {
+        Write-Host (T 'install.resources_busy') -ForegroundColor Yellow
+    } else { Write-Host (T 'install.help') }
 } finally {
-    if (!$CheckOnly) { Read-Host (T 'install.finish') | Out-Null }
+    if (!$CheckOnly -and !$NoPause) { Read-Host (T 'install.finish') | Out-Null }
 }
 exit $exitCode

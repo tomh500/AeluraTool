@@ -15,6 +15,8 @@ template<class T> using Ptr = Microsoft::WRL::ComPtr<T>;
 struct Runtime {
     Runtime(); ~Runtime();
 };
+using TransformEnumerator = decltype(&MFTEnumEx);
+bool hasHardwareEncoder(Codec,TransformEnumerator enumerate = &MFTEnumEx);
 struct Frames {
     HDC screen{}, memory{}; HBITMAP bitmap{}; HGDIOBJ old{}; void* pixels{};
     RECT region{}; unsigned width{}, height{}; Options options;
@@ -30,7 +32,7 @@ struct Microphone : AudioFormat {
     std::vector<int16_t> read();
 };
 struct Writer {
-    Ptr<IMFSinkWriter> sink; DWORD video{}, audio{MAXDWORD}; unsigned rate{}, channels{};
+    Ptr<IMFSinkWriter> sink; DWORD video{}, audio{MAXDWORD}; unsigned rate{}, channels{},width{},height{};
     std::unique_ptr<gpu::Encoder> native;
     Writer(Options const&, unsigned width, unsigned height, AudioFormat const&, std::filesystem::path const&,gpu::Pipeline* = nullptr,std::unique_ptr<gpu::Encoder> = {},MemoryFile* = nullptr);
     void frame(std::vector<BYTE> const&, LONGLONG time, LONGLONG duration);

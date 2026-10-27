@@ -1,6 +1,7 @@
 #include "Recording.Gpu.h"
 #include "Recording.Window.h"
 #include "Recording.Desktop.h"
+#include "Recording.Color.h"
 #include <winrt/base.h>
 #include <d3dcompiler.h>
 #include <algorithm>
@@ -29,10 +30,11 @@ float4 ps(Vertex v):SV_Target{
 }
 struct Pipeline::Impl {
     Pipeline* owner;Options options;RECT region{},monitor{},originalRegion{},originalMonitor{};
-    std::shared_ptr<DesktopCapture> capture;bool wholeMonitor{},waiting{},converted{},bgraOnly{};uint64_t generation{};
+    std::shared_ptr<DesktopCapture> capture;bool wholeMonitor{},waiting{},converted{},bgraOnly{},softwareColor{};uint64_t generation{};
     Ptr<ID3D11DeviceContext> context;
     Ptr<ID3D11Texture2D> desktop,scaled,nv12,cursor;
-    Ptr<ID3D11Texture2D> staging;
+    Ptr<ID3D11Texture2D> staging,bgraStaging;
+    std::vector<BYTE> softwarePixels;
     std::unique_ptr<WindowCapture> window;
     Ptr<ID3D11ShaderResourceView> desktopView,cursorView;Ptr<ID3D11RenderTargetView> target;
     Ptr<ID3D11VertexShader> vs;Ptr<ID3D11PixelShader> ps;Ptr<ID3D11Buffer> constants;
@@ -68,16 +70,40 @@ struct Pipeline::Impl {
         check_hresult(D3DCompile(shader,sizeof(shader),nullptr,nullptr,nullptr,"ps","ps_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&blob,&error));check_hresult(owner->device->CreatePixelShader(blob->GetBufferPointer(),blob->GetBufferSize(),nullptr,&ps));
         D3D11_BUFFER_DESC b{};b.ByteWidth=64;b.Usage=D3D11_USAGE_DEFAULT;b.BindFlags=D3D11_BIND_CONSTANT_BUFFER;check_hresult(owner->device->CreateBuffer(&b,nullptr,&constants));
         D3D11_SAMPLER_DESC s{};s.Filter=D3D11_FILTER_MIN_MAG_MIP_LINEAR;s.AddressU=s.AddressV=s.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;s.MaxLOD=D3D11_FLOAT32_MAX;check_hresult(owner->device->CreateSamplerState(&s,&linear));s.Filter=D3D11_FILTER_MIN_MAG_MIP_POINT;check_hresult(owner->device->CreateSamplerState(&s,&point));
-        if(!bgraOnly){check_hresult(owner->device.As(&video));check_hresult(context.As(&videoContext));
+        if(!bgraOnly&&!softwareColor)try{check_hresult(owner->device.As(&video));check_hresult(context.As(&videoContext));
         D3D11_VIDEO_PROCESSOR_CONTENT_DESC c{};c.InputFrameFormat=D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;c.InputWidth=c.OutputWidth=owner->width;c.InputHeight=c.OutputHeight=owner->height;c.Usage=D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;c.InputFrameRate=c.OutputFrameRate={o.fps,1};
         check_hresult(video->CreateVideoProcessorEnumerator(&c,&enumerator));check_hresult(video->CreateVideoProcessor(enumerator.Get(),0,&processor));
         D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC iv{};iv.ViewDimension=D3D11_VPIV_DIMENSION_TEXTURE2D;check_hresult(video->CreateVideoProcessorInputView(scaled.Get(),enumerator.Get(),&iv,&input));
         D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC ov{};ov.ViewDimension=D3D11_VPOV_DIMENSION_TEXTURE2D;check_hresult(video->CreateVideoProcessorOutputView(nv12.Get(),enumerator.Get(),&ov,&output));
         D3D11_VIDEO_PROCESSOR_COLOR_SPACE rgb{};rgb.RGB_Range=0;rgb.YCbCr_Matrix=0;rgb.Nominal_Range=2;videoContext->VideoProcessorSetStreamColorSpace(processor.Get(),0,&rgb);
         D3D11_VIDEO_PROCESSOR_COLOR_SPACE yuv{};yuv.YCbCr_Matrix=0;yuv.Nominal_Range=1;videoContext->VideoProcessorSetOutputColorSpace(processor.Get(),&yuv);
-        }
+        // Some display drivers accept the processor configuration but produce invalid
+        // chroma. Test the actual canvas and both planes before recording any frames.
+        softwareColor=!testVideoProcessor();
+        }catch(winrt::hresult_error const&){softwareColor=true;}
         // Make a valid transparent cursor resource even when pointer recording is off.
         BYTE transparent[4]{};D3D11_SUBRESOURCE_DATA init{transparent,4,0};d.Width=d.Height=1;d.Format=DXGI_FORMAT_B8G8R8A8_UNORM;d.BindFlags=D3D11_BIND_SHADER_RESOURCE;check_hresult(owner->device->CreateTexture2D(&d,&init,&cursor));check_hresult(owner->device->CreateShaderResourceView(cursor.Get(),nullptr,&cursorView));
+    }
+    void videoConvert(){D3D11_VIDEO_PROCESSOR_STREAM stream{};stream.Enable=TRUE;stream.pInputSurface=input.Get();check_hresult(videoContext->VideoProcessorBlt(processor.Get(),output.Get(),0,1,&stream));}
+    bool testVideoProcessor(){
+        const auto w=owner->width,h=owner->height;
+        constexpr BYTE rgb[6][3]{{0,0,0},{255,255,255},{255,0,0},{0,255,0},{0,0,255},{128,128,128}};
+        std::vector<BYTE> bars(size_t(w)*h*4);
+        for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){auto c=rgb[std::min(5u,x*6/w)];auto p=bars.data()+(size_t(y)*w+x)*4;p[0]=c[2];p[1]=c[1];p[2]=c[0];p[3]=255;}
+        auto expected=media::bgraToNv12(bars.data(),w,h,size_t(w)*4);
+        context->UpdateSubresource(scaled.Get(),0,nullptr,bars.data(),w*4,0);videoConvert();
+        D3D11_TEXTURE2D_DESC d{};nv12->GetDesc(&d);d.Usage=D3D11_USAGE_STAGING;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;d.BindFlags=0;
+        Ptr<ID3D11Texture2D> probe;check_hresult(owner->device->CreateTexture2D(&d,nullptr,&probe));context->CopyResource(probe.Get(),nv12.Get());
+        D3D11_MAPPED_SUBRESOURCE map{};check_hresult(context->Map(probe.Get(),0,D3D11_MAP_READ,0,&map));
+        const bool correct=media::nv12ProbeMatches(static_cast<BYTE const*>(map.pData),map.RowPitch,expected.data(),w,h);
+        context->Unmap(probe.Get(),0);return correct;
+    }
+    void softwareConvert(){
+        if(!bgraStaging){D3D11_TEXTURE2D_DESC d{};scaled->GetDesc(&d);d.Usage=D3D11_USAGE_STAGING;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;d.BindFlags=0;check_hresult(owner->device->CreateTexture2D(&d,nullptr,&bgraStaging));}
+        context->CopyResource(bgraStaging.Get(),scaled.Get());D3D11_MAPPED_SUBRESOURCE map{};check_hresult(context->Map(bgraStaging.Get(),0,D3D11_MAP_READ,0,&map));
+        try{softwarePixels=media::bgraToNv12(static_cast<BYTE const*>(map.pData),owner->width,owner->height,map.RowPitch);}catch(...){context->Unmap(bgraStaging.Get(),0);throw;}
+        context->Unmap(bgraStaging.Get(),0);
+        if(options.encoder==aelura::recording::Encoder::GPU)context->UpdateSubresource(nv12.Get(),0,nullptr,softwarePixels.data(),owner->width,0);
     }
     void cursorImage(HCURSOR handle){
         ICONINFO icon{};if(!GetIconInfo(handle,&icon))return;
@@ -125,17 +151,19 @@ struct Pipeline::Impl {
         D3D11_VIEWPORT viewport{0,0,float(owner->width),float(owner->height),0,1};context->RSSetViewports(1,&viewport);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);context->VSSetShader(vs.Get(),nullptr,0);context->PSSetShader(ps.Get(),nullptr,0);
         ID3D11ShaderResourceView* textures[]{desktopView.Get(),cursorView.Get()};context->PSSetShaderResources(0,2,textures);ID3D11SamplerState* samplers[]{linear.Get(),point.Get()};context->PSSetSamplers(0,2,samplers);context->Draw(3,0);context->OMSetRenderTargets(0,nullptr,nullptr);ID3D11ShaderResourceView* empty[]{nullptr,nullptr};context->PSSetShaderResources(0,2,empty);
         if(bgraOnly){context->Flush();converted=true;return scaled.Get();}
-        D3D11_VIDEO_PROCESSOR_STREAM stream{};stream.Enable=TRUE;stream.pInputSurface=input.Get();check_hresult(videoContext->VideoProcessorBlt(processor.Get(),output.Get(),0,1,&stream));context->Flush();converted=true;return nv12.Get();
+        if(softwareColor)softwareConvert();else videoConvert();context->Flush();converted=true;return nv12.Get();
     }
 };
-Pipeline::Pipeline(Options const& o,RECT r,HWND window,bool bgraOnly):impl_(std::make_unique<Impl>(this)){impl_->bgraOnly=bgraOnly;impl_->setup(o,r,window);}
+Pipeline::Pipeline(Options const& o,RECT r,HWND window,bool bgraOnly,ColorConversion color):impl_(std::make_unique<Impl>(this)){impl_->bgraOnly=bgraOnly;impl_->softwareColor=color==ColorConversion::Software;impl_->setup(o,r,window);}
 Pipeline::~Pipeline()=default;
 ID3D11Texture2D* Pipeline::next(){std::unique_lock<std::recursive_mutex> lock;if(impl_->capture)lock=std::unique_lock(impl_->capture->mutex);return impl_->next();}
 bool Pipeline::sourceClosed()const{return impl_->window&&impl_->window->closed();}
+bool Pipeline::usesSoftwareColorConversion()const{return impl_->softwareColor;}
 bool Pipeline::captureWaiting()const{return impl_->waiting;}
 uint64_t Pipeline::captureRecoveries()const{if(!impl_->capture)return 0;std::lock_guard lock(impl_->capture->mutex);return impl_->capture->recoveries;}
 std::vector<BYTE> Pipeline::readback(){
     std::unique_lock<std::recursive_mutex> lock;if(impl_->capture)lock=std::unique_lock(impl_->capture->mutex);
+    if(impl_->softwareColor)return impl_->softwarePixels;
     if(!impl_->staging){D3D11_TEXTURE2D_DESC d{};impl_->nv12->GetDesc(&d);d.Usage=D3D11_USAGE_STAGING;d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;d.BindFlags=0;check_hresult(device->CreateTexture2D(&d,nullptr,&impl_->staging));}
     impl_->context->CopyResource(impl_->staging.Get(),impl_->nv12.Get());D3D11_MAPPED_SUBRESOURCE map{};check_hresult(impl_->context->Map(impl_->staging.Get(),0,D3D11_MAP_READ,0,&map));
     std::vector<BYTE> pixels;try{pixels.resize(size_t(width)*height*3/2);for(unsigned y=0;y<height+height/2;++y)memcpy(pixels.data()+size_t(y)*width,static_cast<BYTE*>(map.pData)+size_t(y)*map.RowPitch,width);}catch(...){impl_->context->Unmap(impl_->staging.Get(),0);throw;}impl_->context->Unmap(impl_->staging.Get(),0);return pixels;

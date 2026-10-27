@@ -9,6 +9,11 @@ using namespace Microsoft::UI::Xaml;
 namespace winrt::AeluraTool::implementation {
 using aelura::i18n::tr;
 void MainWindow::ApplyLanguage() {
+    if(ipv6_)ipv6_->localize();
+    for(auto& panel:network_)if(panel)panel->localize();
+    NetworkBackButton().Content(box_value(tr("nav.back")));
+    Ipv6BackButton().Content(box_value(tr("nav.back")));
+    if(account_)account_->localize();
     if(toggleNotification_)toggleNotification_->close();
     if (fileSearch_) fileSearch_->localize();
     if (fileSearchPage_) fileSearchPage_->localize();
@@ -35,6 +40,7 @@ void MainWindow::ApplyLanguage() {
     navigationLabel(ImageNav(), L"\xE91B", tr("nav.images"));
     navigationLabel(FilesNav(), L"\xE8B7", tr("nav.files"));
     navigationLabel(GamesNav(), L"\xE7FC", tr("nav.games"));
+    navigationLabel(NetworkNav(), L"\xE774", tr("nav.network"));
     navigationLabel(KeysNav(), L"\xE765", tr("nav.keys"));
     navigationLabel(PreferencesNav(), L"\xE713", tr("nav.settings"));
     PageTitle().Text(tr("nav.all"));

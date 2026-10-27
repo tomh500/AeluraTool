@@ -34,7 +34,7 @@ using aelura::i18n::tr;
         Status().IsOpen(true); Status().Message(message); Status().Severity(error ? InfoBarSeverity::Error : InfoBarSeverity::Success);
     }
     void MainWindow::GoBack() {
-        if (page_ != 3 && page_ != 4 && page_ != 5 && page_ != 6 && page_ != 7) return;
+        if (page_ < 3 || page_ > 11) return;
         navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
         auto previous = toolReturn_.value_or(NavigationEntry{0, 2, L""}); toolReturn_.reset();
         restoringNavigation_ = true;
@@ -43,7 +43,7 @@ using aelura::i18n::tr;
         Page(previous.page, previous.category, false);
         UpdateSearch(); Search().IsSuggestionListOpen(false);
         auto navigation = previous.page == 2 ? PreferencesNav() : previous.page == 1 ? KeysNav() :
-            previous.category == 1 ? ImageNav() : previous.category == 3 ? GamesNav() : FilesNav();
+            previous.category == 1 ? ImageNav() : previous.category == 3 ? GamesNav() : previous.category == 4 ? NetworkNav() : FilesNav();
         navigation.Focus(FocusState::Programmatic);
     }
     void MainWindow::GoHistoryBack() {
@@ -59,7 +59,7 @@ using aelura::i18n::tr;
         const int nextCategory = category < 0 ? category_ : category;
         if (remember && (index != page_ || nextCategory != category_))
             navigationHistory_.push_back({{page_, category_, Search().Text()}, toolReturn_});
-        if (remember && (index == 3 || index == 4 || index == 5 || index == 6 || index == 7) && page_ != 3 && page_ != 4 && page_ != 5 && page_ != 6 && page_ != 7)
+        if (remember && index >= 3 && index <= 11 && (page_ < 3 || page_ > 11))
             toolReturn_ = NavigationEntry{page_, category_, Search().Text()};
         category_ = nextCategory;
         page_ = index;
@@ -72,6 +72,10 @@ using aelura::i18n::tr;
         AutoClickerPage().Visibility(index == 7 ? Visibility::Visible : Visibility::Collapsed);
         RecordingPage().Visibility(index == 6 ? Visibility::Visible : Visibility::Collapsed);
         FileSearchPage().Visibility(index == 5 ? Visibility::Visible : Visibility::Collapsed);
+        Ipv6Page().Visibility(index == 8 ? Visibility::Visible : Visibility::Collapsed);
+        NetworkPage().Visibility(index >= 9 && index <= 11 ? Visibility::Visible : Visibility::Collapsed);
+        if(index >= 9 && index <= 11) { auto& panel=network_[index-9];if(!panel)panel=std::make_unique<aelura::network::Panel>(index-9);NetworkHost().Content(panel->content()); }
+        if(index == 8 && !ipv6_) { ipv6_=std::make_unique<aelura::ipv6::Panel>(hwnd_);Ipv6Host().Content(ipv6_->content()); }
         if (index == 5) {
             if (!fileSearchPage_) {
                 EnsureFileSearchIndex();
@@ -80,18 +84,20 @@ using aelura::i18n::tr;
             }
             fileSearchPage_->show();
         } else if (fileSearchPage_) fileSearchPage_->hide();
-        const wchar_t* categories[] = {tr("nav.all"), tr("nav.images"), tr("nav.files"), tr("nav.games")};
-        PageTitle().Text(index == 0 ? categories[category_] : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 7 ? tr("autoclicker.title") : index == 6 ? tr("record.title") : index == 5 ? tr("filesearch.title") : index == 4 ? tr("hash.title") : tr("move.title"));
-        PageDescription().Text(index == 0 ? tr("home.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 7 ? tr("autoclicker.description") : index == 6 ? tr("record.description") : index == 5 ? tr("filesearch.description") : index == 4 ? tr("hash.description") : tr("move.description"));
+        const wchar_t* categories[] = {tr("nav.all"), tr("nav.images"), tr("nav.files"), tr("nav.games"), tr("nav.network")};
+        PageTitle().Text(index == 0 ? categories[category_] : index == 8 ? tr("ipv6.title") : index == 1 ? tr("nav.keys") : index == 2 ? tr("nav.settings") : index == 7 ? tr("autoclicker.title") : index == 6 ? tr("record.title") : index == 5 ? tr("filesearch.title") : index == 4 ? tr("hash.title") : tr("move.title"));
+        PageDescription().Text(index == 0 ? tr("home.description") : index == 8 ? tr("ipv6.description") : index == 1 ? tr("keys.description") : index == 2 ? tr("settings.description") : index == 7 ? tr("autoclicker.description") : index == 6 ? tr("record.description") : index == 5 ? tr("filesearch.description") : index == 4 ? tr("hash.description") : tr("move.description"));
         ResultCount().Visibility(index == 0 ? Visibility::Visible : Visibility::Collapsed);
+        if(index>=9 && index<=11){char const* titles[]={"net.speed_title","net.dns_title","net.tcp_title"};char const* descriptions[]={"net.speed_description","net.dns_description","net.tcp_description"};PageTitle().Text(tr(titles[index-9]));PageDescription().Text(tr(descriptions[index-9]));}
         auto standard = Application::Current().Resources().Lookup(box_value(L"DefaultButtonStyle")).as<Style>();
         auto selected = Root().Resources().Lookup(box_value(L"NavigationSelected")).as<Style>();
         ImageNav().Style(((index == 0 && category_ == 1) || index == 6) ? selected : standard);
         FilesNav().Style((index == 0 && category_ == 2) || index == 3 || index == 4 || index == 5 ? selected : standard);
         GamesNav().Style((index == 0 && category_ == 3) || index == 7 ? selected : standard);
+        NetworkNav().Style((index == 0 && category_ == 4) || (index >= 8 && index <= 11) ? selected : standard);
         KeysNav().Style(index == 1 ? selected : standard); PreferencesNav().Style(index == 2 ? selected : standard);
         if (index == 0) RenderTools(); if (index == 1) RenderKeys(); if (index == 4) RenderHash();
-        if (index == 2 && ready_) StartupSetting();
+        if (index == 2 && ready_) { StartupSetting(); if(account_)account_->refresh(); }
     }
     void MainWindow::Setup(bool startupActivation) {
         startupActivation_ = startupActivation;
@@ -171,6 +177,9 @@ using aelura::i18n::tr;
         ImageNav().Click([this](auto const&, auto const&) { Page(0, 1); });
         FilesNav().Click([this](auto const&, auto const&) { Page(0, 2); });
         GamesNav().Click([this](auto const&, auto const&) { Page(0, 3); });
+        NetworkNav().Click([this](auto const&, auto const&) { Page(0, 4); });
+        Ipv6BackButton().Click([this](auto const&, auto const&) { GoBack(); });
+        NetworkBackButton().Click([this](auto const&, auto const&) { GoBack(); });
         KeysNav().Click([this](auto const&, auto const&) { Page(1); });
         PreferencesNav().Click([this](auto const&, auto const&) { Page(2); });
         SetupSearch();
@@ -191,6 +200,7 @@ using aelura::i18n::tr;
         recording_ = std::make_unique<aelura::recording::Panel>(hwnd_,config_.parent_path()/L"recording.json",[this]{RestoreWindow();Page(6);if(recording_&&!recording_->busy())Status().IsOpen(false);},[this]{auto host=EngineWindow();if(!host&&!pending_)Invoke(capture::Prepare);return host;});
         RecordingHost().Content(recording_->content());recording_->theme(Root().RequestedTheme());
         RecordingBackButton().Click([this](auto const&,auto const&){GoBack();});
+        account_=std::make_unique<aelura::account::Panel>(config_);AccountHost().Content(account_->content());
         SetupAutoClicker(); SetupHash(); SetupLifecycle(); ApplyLanguage(); ready_ = true;
         timer_ = DispatcherQueue().CreateTimer(); timer_.Interval(std::chrono::milliseconds(100));
         timer_.Tick([this](auto const&, auto const&) {

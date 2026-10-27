@@ -1,8 +1,13 @@
 name: Build and nightly release
 
 on:
+  pull_request:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'Docs/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -53,19 +58,24 @@ jobs:
       - name: Build and test Release and Debug
         shell: pwsh
         run: |
+          python Tests/check_installer.py
+          if ($LASTEXITCODE) { throw 'Installer launcher tests failed' }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tests/installer_dependencies.ps1
+          if ($LASTEXITCODE) { throw 'Installer dependency tests failed' }
           ./scripts/build.ps1 -Configuration Release
           ./scripts/test.ps1 -Configuration Release
           ./scripts/build.ps1 -Configuration Debug
           ./scripts/test.ps1 -Configuration Debug
-      - name: Package unsigned nightly
+      - name: Package signed nightly and check installer
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
-        run: |
-          ./scripts/package.ps1
-          $name = 'AeluraTool-nightly-${{ steps.version.outputs.stamp }}-${{ github.run_id }}-${{ github.run_attempt }}-x64'
-          New-Item artifacts/nightly -ItemType Directory -Force | Out-Null
-          Compress-Archive -Path artifacts/packages/* -DestinationPath "artifacts/nightly/$name.zip"
-          Get-FileHash "artifacts/nightly/$name.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $name.zip" } | Set-Content "artifacts/nightly/$name.sha256" -Encoding utf8
+        env:
+          MSIX_SIGNING_PFX_BASE64: ${{ secrets.MSIX_SIGNING_PFX_BASE64 }}
+          MSIX_SIGNING_PFX_PASSWORD: ${{ secrets.MSIX_SIGNING_PFX_PASSWORD }}
+          NIGHTLY_NAME: AeluraTool-nightly-${{ steps.version.outputs.stamp }}-${{ github.run_id }}-${{ github.run_attempt }}-x64
+        run: ./scripts/package-nightly.ps1
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: nightly-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/nightly/*
@@ -82,7 +92,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
 
   release:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -102,5 +112,5 @@ jobs:
         shell: bash
         run: |
           tag="nightly-${BUILD_STAMP}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          printf 'Branch: %s\nCommit: %s\nUTC: %s\nMSIX version: %s\n\nUnsigned test package. Sign with a trusted certificate before installation.\n' "$BRANCH" "$GITHUB_SHA" "$BUILD_STAMP" "$PACKAGE_VERSION" > notes.md
+          printf 'Branch: %s\nCommit: %s\nUTC: %s\nMSIX version: %s\n\nSigned Windows x64 test package. Extract the entire ZIP and double-click Install.bat. On first installation, verify the publisher certificate before allowing the trust prompt.\n' "$BRANCH" "$GITHUB_SHA" "$BUILD_STAMP" "$PACKAGE_VERSION" > notes.md
           gh release create "$tag" nightly/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Nightly ${BUILD_STAMP} (${BRANCH})" --notes-file notes.md

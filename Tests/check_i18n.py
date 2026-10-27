@@ -8,7 +8,7 @@ zh = json.loads((root / "Strings/zh-CN.json").read_text(encoding="utf-8"))
 en = json.loads((root / "Strings/en-US.json").read_text(encoding="utf-8"))
 assert zh.keys() == en.keys(), "Language resource keys must match"
 assert all(isinstance(v, str) and v for d in (zh, en) for v in d.values()), "Translations must not be empty"
-files = [*root.glob("MainWindow*.cpp"), *root.glob("Integration/*.cpp"), *root.glob("Tools/ScreenShotPlus/*.cpp")]
+files = [*root.glob("MainWindow*.cpp"), *root.glob("Integration/**/*.cpp"), *root.glob("Tools/ScreenShotPlus/*.cpp")]
 keys = set()
 for path in files:
     text = path.read_text(encoding="utf-8-sig")
@@ -17,6 +17,9 @@ for path in files:
     # Search controls also bind stable resource keys through descriptor tables.
     keys.update(re.findall(r'"(filesearch\.[a-z0-9_.]+)"', text))
     keys.update(re.findall(r'"(autoclicker\.[a-z0-9_.]+)"', text))
+    keys.update(re.findall(r'"(account\.[a-z0-9_.]+)"', text))
+    keys.update(re.findall(r'(?<!L)"(ipv6\.[a-z0-9_.]+)"', text))
+    keys.update(re.findall(r'(?<!L)"(net\.[a-z0-9_.]+)"', text))
 for name in ("SearchCatalog.h", "ToolCatalog.h"):
     text = (root / "Integration" / name).read_text(encoding="utf-8-sig")
     keys.update(re.findall(r'"([a-z][a-z0-9_]*\.[a-z0-9_.]+)"', text))

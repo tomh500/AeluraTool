@@ -41,7 +41,8 @@ void MainWindow::OpenSearchResult(hstring const& label) {
     if (target.page == -1) { ActivateTool(target.id); return; }
     Page(target.page, target.category ? target.category : category_);
     FrameworkElement element{nullptr};
-    if (target.id == L"appearance") element = ThemeChoice();
+    if (target.id == L"account") element = AccountHost();
+    else if (target.id == L"appearance") element = ThemeChoice();
     else if (target.id == L"language") element = LanguageChoice();
     else if (target.id == L"motion") element = StartupMotionSwitch();
     else if (target.id == L"close") element = CloseActionChoice();

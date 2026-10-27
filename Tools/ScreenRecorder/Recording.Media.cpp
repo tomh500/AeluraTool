@@ -1,4 +1,5 @@
 #include "Recording.Media.h"
+#include "Recording.Color.h"
 #include <winrt/base.h>
 #include <mferror.h>
 #include <mftransform.h>
@@ -18,6 +19,13 @@ namespace aelura::recording::media {
 using winrt::check_hresult;
 Runtime::Runtime() { check_hresult(CoInitializeEx(nullptr, COINIT_MULTITHREADED)); try { check_hresult(MFStartup(MF_VERSION)); } catch (...) { CoUninitialize(); throw; } }
 Runtime::~Runtime() { MFShutdown(); CoUninitialize(); }
+bool hasHardwareEncoder(Codec codec,TransformEnumerator enumerate) {
+    MFT_REGISTER_TYPE_INFO output{MFMediaType_Video,codec==Codec::H264?MFVideoFormat_H264:MFVideoFormat_HEVC};
+    IMFActivate** transforms{};UINT32 count{};
+    const auto hr=enumerate(MFT_CATEGORY_VIDEO_ENCODER,MFT_ENUM_FLAG_HARDWARE,nullptr,&output,&transforms,&count);
+    for(UINT32 i=0;i<count;++i)if(transforms&&transforms[i])transforms[i]->Release();
+    CoTaskMemFree(transforms);check_hresult(hr);return count!=0;
+}
 Frames::Frames(Options const& o, RECT r) : region(r), options(o) {
     width = outputExtent(unsigned(r.right-r.left), o.scale);
     height = outputExtent(unsigned(r.bottom-r.top), o.scale);
@@ -54,20 +62,7 @@ std::vector<BYTE> Frames::next() {
         check_hresult(scaler->Initialize(input.Get(),width,height,modes[static_cast<int>(options.scaling)]));
         scaled.resize(size_t(width)*height*4); check_hresult(scaler->CopyPixels(nullptr,width*4,static_cast<UINT>(scaled.size()),scaled.data())); bgra = scaled.data();
     }
-    // BT.601 limited-range NV12, matching the media type's declared matrix/range.
-    std::vector<BYTE> nv12(size_t(width)*height*3/2);
-    auto clip = [](int v) { return static_cast<BYTE>(std::clamp(v,0,255)); };
-    for (unsigned y=0;y<height;++y) for(unsigned x=0;x<width;++x) {
-        auto p = bgra + (size_t(y)*width+x)*4; const int b=p[0],g=p[1],r=p[2];
-        nv12[size_t(y)*width+x]=clip(((66*r+129*g+25*b+128)>>8)+16);
-        if (!(x&1) && !(y&1)) {
-            int rr=0,gg=0,bb=0;
-            for(unsigned dy=0;dy<2;++dy) for(unsigned dx=0;dx<2;++dx) { auto q=p+(size_t(dy)*width+dx)*4; bb+=q[0];gg+=q[1];rr+=q[2]; }
-            auto uv=nv12.data()+size_t(width)*height+size_t(y/2)*width+x;
-            uv[0]=clip(((-38*rr-74*gg+112*bb+512)>>10)+128); uv[1]=clip(((112*rr-94*gg-18*bb+512)>>10)+128);
-        }
-    }
-    return nv12;
+    return bgraToNv12(bgra,width,height,size_t(width)*4);
 }
 Microphone::Microphone(bool enabled,bool loopback) {
     if (!enabled) return;
@@ -138,7 +133,7 @@ bool hardware(IMFSinkWriter* writer,DWORD stream) {
     return false;
 }
 }
-Writer::Writer(Options const& o,unsigned w,unsigned h,AudioFormat const& mic,std::filesystem::path const& path,gpu::Pipeline* pipeline,std::unique_ptr<gpu::Encoder> encoder,MemoryFile* memory) : rate(mic.rate),channels(mic.channels),native(std::move(encoder)) {
+Writer::Writer(Options const& o,unsigned w,unsigned h,AudioFormat const& mic,std::filesystem::path const& path,gpu::Pipeline* pipeline,std::unique_ptr<gpu::Encoder> encoder,MemoryFile* memory) : rate(mic.rate),channels(mic.channels),width(w),height(h),native(std::move(encoder)) {
     if(pipeline)native=pipeline->vendor==0x10de?gpu::nvidia(o,*pipeline):gpu::amd(o,*pipeline);
     Ptr<IMFAttributes> attrs; check_hresult(MFCreateAttributes(&attrs,5));
     check_hresult(attrs->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,o.encoder==Encoder::GPU));
@@ -154,7 +149,9 @@ Writer::Writer(Options const& o,unsigned w,unsigned h,AudioFormat const& mic,std
     auto output=videoType(o.codec==Codec::H264?MFVideoFormat_H264:MFVideoFormat_HEVC,w,h,o.fps);
     if(native){auto extra=native->headers();if(!extra.empty())check_hresult(output->SetBlob(MF_MT_MPEG_SEQUENCE_HEADER,extra.data(),static_cast<UINT32>(extra.size())));}
     check_hresult(output->SetUINT32(MF_MT_AVG_BITRATE,o.bitrate)); check_hresult(sink->AddStream(output.Get(),&video));
-    auto input=native?output:videoType(MFVideoFormat_NV12,w,h,o.fps); check_hresult(sink->SetInputMediaType(video,input.Get(),nullptr));
+    auto input=native?output:videoType(MFVideoFormat_NV12,w,h,o.fps);
+    if(!native)check_hresult(input->SetUINT32(MF_MT_DEFAULT_STRIDE,w));
+    check_hresult(sink->SetInputMediaType(video,input.Get(),nullptr));
     // Verify the actual selected transform. A GPU request must never quietly use CPU.
     if(!native && hardware(sink.Get(),video)!=(o.encoder==Encoder::GPU)) winrt::throw_hresult(MF_E_TOPO_CODEC_NOT_FOUND);
     if(channels) {
@@ -168,10 +165,27 @@ Writer::Writer(Options const& o,unsigned w,unsigned h,AudioFormat const& mic,std
     }
     check_hresult(sink->BeginWriting());
 }
-void Writer::frame(std::vector<BYTE> const& data,LONGLONG t,LONGLONG d) { auto s=sample(data.data(),static_cast<DWORD>(data.size()),t,d); check_hresult(sink->WriteSample(video,s.Get())); }
+void Writer::frame(std::vector<BYTE> const& data,LONGLONG t,LONGLONG d) {
+    if(data.size()!=size_t(width)*height*3/2)winrt::throw_hresult(E_INVALIDARG);
+    // A 2D buffer carries its real pitch to the encoder. Raw byte buffers leave
+    // alignment and the chroma-plane offset to each transform's interpretation.
+    Ptr<IMFMediaBuffer> buffer;check_hresult(MFCreate2DMediaBuffer(width,height,MFVideoFormat_NV12.Data1,FALSE,&buffer));
+    Ptr<IMF2DBuffer> image;check_hresult(buffer.As(&image));check_hresult(image->ContiguousCopyFrom(data.data(),static_cast<DWORD>(data.size())));
+    Ptr<IMFSample> s;check_hresult(MFCreateSample(&s));check_hresult(s->AddBuffer(buffer.Get()));check_hresult(s->SetSampleTime(t));check_hresult(s->SetSampleDuration(d));
+    check_hresult(sink->WriteSample(video,s.Get()));
+}
 void Writer::sound(std::vector<int16_t> const& data,LONGLONG t) { if(data.empty() || audio==MAXDWORD) return; auto s=sample(data.data(),static_cast<DWORD>(data.size()*2),t,LONGLONG(data.size()/channels)*10000000/rate); check_hresult(sink->WriteSample(audio,s.Get())); }
 void Writer::packets(std::vector<gpu::Packet> const& packets){for(auto const& p:packets){auto s=sample(p.data.data(),static_cast<DWORD>(p.data.size()),p.time,p.duration);check_hresult(s->SetUINT32(MFSampleExtension_CleanPoint,p.key));check_hresult(sink->WriteSample(video,s.Get()));}}
 void Writer::texture(ID3D11Texture2D* t,LONGLONG time,LONGLONG duration){packets(native->encode(t,time,duration));}
 void Writer::texture12(ID3D12Resource* t,LONGLONG time,LONGLONG duration){packets(native->encode12(t,time,duration));}
 void Writer::finish() { if(native)packets(native->flush());check_hresult(sink->Finalize()); sink.Reset(); }
+}
+namespace aelura::recording {
+HardwareEncoders hardwareEncoders() noexcept {
+    HardwareEncoders result;
+    try{media::Runtime runtime;result.h264=media::hasHardwareEncoder(Codec::H264);result.hevc=media::hasHardwareEncoder(Codec::HEVC);}
+    catch(winrt::hresult_error const& e){result.error=e.code();}
+    catch(...){result.error=E_FAIL;}
+    return result;
+}
 }

@@ -12,8 +12,10 @@
  <ItemGroup><ClCompile Include="..\Integration\EverythingSearch.cpp"/><ClCompile Include="everything_tests.cpp"/><ClCompile Include="..\Tools\EverythingSDK\src\Everything.c"><CompileAs>CompileAsC</CompileAs><WarningLevel>Level1</WarningLevel><PreprocessorDefinitions>AELURA_EVERYTHING_TEST_IPC;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile></ItemGroup>
  <ItemGroup><ClCompile Include="..\Integration\FileShellActions.cpp"/><ClCompile Include="file_shell_tests.cpp"/></ItemGroup>
  <ItemGroup><ClCompile Include="..\Integration\Privileges.cpp"/><ClCompile Include="privileges_tests.cpp"/><ClCompile Include="autoclicker_tests.cpp"/></ItemGroup>
+ <ItemGroup><ClCompile Include="ipv6_tests.cpp"/><ClCompile Include="..\Integration\Ipv6\Core.cpp"/><ClCompile Include="..\Integration\Ipv6\Network.cpp"/><ClCompile Include="..\Integration\Ipv6\Repair.cpp"/></ItemGroup>
  <ItemDefinitionGroup><ClCompile><Optimization Condition="'$(Configuration)' == 'Debug'">Disabled</Optimization><Optimization Condition="'$(Configuration)' == 'Release'">MaxSpeed</Optimization><DebugInformationFormat>ProgramDatabase</DebugInformationFormat></ClCompile><Link><GenerateDebugInformation>true</GenerateDebugInformation></Link></ItemDefinitionGroup>
  <ItemGroup><None Include="README.md"/><None Include="check_i18n.py"/><None Include="smoke_capture.py"/></ItemGroup>
+ <ItemGroup><ClCompile Include="network_tests.cpp"/><ClCompile Include="..\Integration\Network\Core.cpp"><ObjectFileName>$(IntDir)NetworkCore.obj</ObjectFileName></ClCompile><ClCompile Include="..\Integration\Network\Speed.cpp"/></ItemGroup>
  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
  <Target Name="RunTests" DependsOnTargets="Build"><Exec Command="&quot;$(TargetPath)&quot;"/></Target>
 </Project>

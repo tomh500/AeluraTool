@@ -42,6 +42,6 @@ std::string utf8(std::string_view key) {
     std::string result(count, '\0'); WideCharToMultiByte(CP_UTF8, 0, value, -1, result.data(), count, nullptr, nullptr); result.pop_back(); return result;
 }
 wchar_t const* category(int index) {
-    const char* keys[] = {"nav.all", "nav.images", "nav.files", "nav.games"}; return tr(keys[index >= 0 && index < 4 ? index : 0]);
+    const char* keys[] = {"nav.all", "nav.images", "nav.files", "nav.games", "nav.network"}; return tr(keys[index >= 0 && index < 5 ? index : 0]);
 }
 }
