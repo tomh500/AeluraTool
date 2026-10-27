@@ -6,9 +6,17 @@
 #include <stdexcept>
 #include <functional>
 #include <cmath>
+#include <algorithm>
 namespace {
 using namespace aelura::network;
 void check(bool b,char const* message){if(!b)throw std::runtime_error(message);}
+size_t readHeaders(std::string& input,std::function<int(char*,int)> const& receive){
+    char buffer[65536]{};size_t split;
+    while((split=input.find("\r\n\r\n"))==std::string::npos&&input.size()<sizeof(buffer)){
+        int n=receive(buffer,sizeof(buffer));if(n<=0)break;input.append(buffer,n);
+    }
+    return split;
+}
 struct Server {
     SOCKET listener=INVALID_SOCKET;unsigned short port{};std::thread worker;std::atomic_bool stop{};
     std::atomic_uint64_t received{};bool ok{};
@@ -21,8 +29,8 @@ struct Server {
         worker=std::thread([this,code,shortBody,stall]{
             while(!stop){fd_set set;FD_ZERO(&set);FD_SET(listener,&set);timeval wait{0,30000};if(select(0,&set,nullptr,nullptr,&wait)<=0)continue;SOCKET s=accept(listener,nullptr,nullptr);if(s==INVALID_SOCKET)continue;
                 DWORD timeout=2000;setsockopt(s,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<char*>(&timeout),sizeof(timeout));setsockopt(s,SOL_SOCKET,SO_SNDTIMEO,reinterpret_cast<char*>(&timeout),sizeof(timeout));
-                std::string input;char buffer[65536]{};size_t split=std::string::npos;
-                while(input.size()<65536 && (split=input.find("\r\n\r\n"))==std::string::npos){int n=recv(s,buffer,sizeof(buffer),0);if(n<=0)break;input.append(buffer,n);}
+                std::string input;char buffer[65536]{};
+                auto split=readHeaders(input,[&](char* data,int length){return recv(s,data,length,0);});
                 if(split==std::string::npos){closesocket(s);continue;}
                 bool upload=input.rfind("POST ",0)==0;size_t amount=1000000;
                 if(upload){auto p=input.find("Content-Length: ");if(p!=std::string::npos)amount=std::stoull(input.substr(p+16));received=input.size()-split-4;
@@ -42,6 +50,12 @@ Endpoint local(Server const& s,int family){Endpoint e;e.host=family==4?L"127.0.0
 void run_network_tests() {
     using namespace aelura::network;WSADATA data{};check(!WSAStartup(MAKEWORD(2,2),&data),"network winsock startup");
     struct Cleanup{~Cleanup(){WSACleanup();}} cleanup;
+    {
+        std::string packet="POST / HTTP/1.1\r\nContent-Length: 1000000\r\n\r\n";const auto expected=packet.find("\r\n\r\n");packet.resize(65536,'x');
+        std::string input;unsigned reads{};
+        auto split=readHeaders(input,[&](char* out,int capacity){check(++reads==1,"header parser read past complete full-sized packet");check(capacity>=int(packet.size()),"fixture read capacity");std::copy(packet.begin(),packet.end(),out);return int(packet.size());});
+        check(split==expected&&input.size()==65536,"full receive buffer lost complete HTTP header and upload bytes");
+    }
     check(validHost(L"example.com")&&validHost(L"::1")&&!validHost(L"https://example.com")&&!validHost(L"a b")&&!validHost(L"x\r\ny"),"host validation");
     check(std::abs(megabits(1000000,1)-8)<0.001&&megabits(1,0)==0,"Mbps units");
     for(int family:{4,6}) {

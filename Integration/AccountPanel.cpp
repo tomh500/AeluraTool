@@ -115,11 +115,11 @@ struct Panel::Impl:std::enable_shared_from_this<Impl>{
         busy=false;render();
     }catch(...){}
     fire_and_forget signout()try{
-        auto self=shared_from_this();if(busy||closed)co_return;auto base=endpoint;auto saved=token;apartment_context ui;
+        auto self=shared_from_this();if(busy||closed)co_return;auto version=++generation;auto base=endpoint;auto saved=token;apartment_context ui;
         try{forgetCredential(base);}catch(Error const&e){message=e.key;render();co_return;}
         token.clear();signedIn=false;profile=JsonObject();busy=true;message="account.signing_out";render();std::string issue;
         co_await resume_background();try{request(base,L"POST",L"/v2/accounts/logout",saved);}catch(...){issue="account.local_signed_out";}
-        co_await ui;if(closed)co_return;busy=false;message=issue.empty()?"account.signed_out":issue;render();
+        co_await ui;if(closed||generation!=version)co_return;busy=false;message=issue.empty()?"account.signed_out":issue;render();
     }catch(...){}
     void saveEndpoint(){
         try{
