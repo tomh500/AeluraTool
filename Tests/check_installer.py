@@ -25,9 +25,18 @@ with tempfile.TemporaryDirectory(prefix="Aelura installer ") as directory:
             # A successful fixture emits one line; failure must also emit PAUSE's prompt.
             lines = [line for line in result.stdout.splitlines() if line.strip()]
             assert (len(lines) > 1) == (code != 0), result.stdout
+        (folder / "Install.ps1").write_text(
+            "param([switch]$NoPause)\n"
+            "$answer = Read-Host 'Fixture consent'\n"
+            "if (!$NoPause -or $answer -ne 'yes') { exit 98 }\n"
+            "Write-Output 'CONSENT_RECEIVED'; exit 0\n", encoding="utf-8-sig")
+        result = subprocess.run(
+            [os.environ["COMSPEC"], "/d", "/c", f"call {launcher}"], cwd=folder,
+            input=b"yes\r\n\r\n", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+        assert result.returncode == 0 and b"CONSENT_RECEIVED" in result.stdout, result.stdout
         (folder / "Install.ps1").unlink()
         result = subprocess.run(
             [os.environ["COMSPEC"], "/d", "/c", f"call {launcher}"], cwd=folder,
             input=b"\r\n", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
         assert result.returncode != 0 and result.stdout.strip(), result.stdout
-print("PASS: BAT/CMD success, failure pause, missing script, argument forwarding and spaced Unicode paths")
+print("PASS: BAT/CMD success, failure pause, redirected consent, missing script, argument forwarding and spaced Unicode paths")

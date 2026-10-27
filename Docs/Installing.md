@@ -28,3 +28,9 @@ Windows 小组件等程序可能占用共享运行库，导致 `0x80073D02`。�
 CI 使用固定签名证书生成与手动分发相同的 ZIP；缺少签名配置、签名失败或安装预检失败时不发布。仓库 Actions secrets 需要配置 `MSIX_SIGNING_PFX_BASE64`（含私钥 PFX 文件的 Base64）与 `MSIX_SIGNING_PFX_PASSWORD`（PFX 密码）。证书必须在有效期内、可用于代码签名，Subject 匹配包 Publisher（当前 `CN=jingy`）。持续使用同一证书，避免每次更新都重新信任新证书。已有不可导出私钥的本机证书不能导出为 CI PFX；需另外准备可供 CI 使用的固定签名证书。
 
 PFX 只在临时 runner 导入，结束时删除临时文件、证书和私钥；发布 ZIP 仅含 CER 公钥。不要将 PFX、密码或 Base64 写入仓库。旧的未签名 nightly ZIP 不能通过修改执行策略安装，需重新生成签名发布包。
+
+## 云端安装验证
+
+nightly 发布前，在独立的 GitHub 托管 Windows 虚拟机下载本次签名 ZIP，并通过包内 `Install.bat` 真正安装，不使用 `-CheckOnly`。任务自动确认测试证书信任，检查至少一项缺失运行库的部署、应用版本与包身份、桌面快捷方式，以及安装后的窗口启动和响应情况；失败会阻止发布。报告和启动截图保存在 Actions 的 `install-logs` 附件。
+
+也可以手动运行工作流并启用 `verify_install`，完成签名打包和安装检查，但不发布 nightly。该任务不会在开发机执行。GitHub 托管镜像包含预装软件，因此验证的是新分配的独立虚拟机，不等同于完全空白的零售 Windows；报告会列出安装前后的运行库状态。

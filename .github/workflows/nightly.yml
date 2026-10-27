@@ -8,6 +8,11 @@ on:
       - '**/*.md'
       - 'Docs/**'
   workflow_dispatch:
+    inputs:
+      verify_install:
+        description: Build a signed archive and test Install.bat on a separate Windows runner
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -62,20 +67,25 @@ jobs:
           if ($LASTEXITCODE) { throw 'Installer launcher tests failed' }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tests/installer_dependencies.ps1
           if ($LASTEXITCODE) { throw 'Installer dependency tests failed' }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tests/install_smoke_safety.ps1
+          if ($LASTEXITCODE) { throw 'Installation harness safety checks failed' }
           ./scripts/build.ps1 -Configuration Release
           ./scripts/test.ps1 -Configuration Release
           ./scripts/build.ps1 -Configuration Debug
           ./scripts/test.ps1 -Configuration Debug
       - name: Package signed nightly and check installer
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: package
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.verify_install)
         shell: pwsh
         env:
           MSIX_SIGNING_PFX_BASE64: ${{ secrets.MSIX_SIGNING_PFX_BASE64 }}
           MSIX_SIGNING_PFX_PASSWORD: ${{ secrets.MSIX_SIGNING_PFX_PASSWORD }}
           NIGHTLY_NAME: AeluraTool-nightly-${{ steps.version.outputs.stamp }}-${{ github.run_id }}-${{ github.run_attempt }}-x64
-        run: ./scripts/package-nightly.ps1
+        run: |
+          ./scripts/package-nightly.ps1
+          "ready=true" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.package.outputs.ready == 'true'
         with:
           name: nightly-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/nightly/*
@@ -90,10 +100,33 @@ jobs:
     outputs:
       stamp: ${{ steps.version.outputs.stamp }}
       version: ${{ steps.version.outputs.version }}
+      signed: ${{ steps.package.outputs.ready }}
+
+  install:
+    if: needs.build.outputs.signed == 'true'
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: install-input
+      - name: Install through the user BAT and activate the packaged app
+        shell: powershell
+        run: ./Tests/install_smoke.ps1 -ArtifactDirectory ./install-input -ReportDirectory ./artifacts/install-smoke
+      - name: Upload installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/install-smoke/*
+          if-no-files-found: warn
 
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build, install]
     runs-on: ubuntu-latest
     permissions:
       contents: write
