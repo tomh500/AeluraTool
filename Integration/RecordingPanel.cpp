@@ -134,13 +134,18 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         }catch(hresult_error const& e){diagnostics::failure("recording.hardware",e.code(),e.message());co_return;}
         try{tick();}catch(...){issueKey="record.ui_failed";}
     }
-    bool gpuAvailable()const{return hardwareChecked&&hardware.supports(codec.SelectedIndex()==1?Codec::HEVC:Codec::H264);}
+    // The performance path can initialize NVENC/AMF directly even when no
+    // Media Foundation hardware transform is registered. Let it try; the
+    // recording session reports a real initialization failure if unavailable.
+    bool gpuAvailable()const{return hardwareChecked&&(beta.IsOn()||hardware.supports(codec.SelectedIndex()==1?Codec::HEVC:Codec::H264));}
     char const* gpuIssue()const{return !hardwareChecked?"record.gpu_checking":FAILED(hardware.error)?"record.gpu_check_failed":"record.gpu_unavailable";}
     bool checkEncoder(){if(encoder.SelectedIndex()!=1||gpuAvailable())return true;issueKey=gpuIssue();return false;}
     void updateHardwareControls(){
         const bool available=gpuAvailable();
-        if(auto item=encoder.Items().GetAt(1).try_as<ComboBoxItem>())item.IsEnabled(available);
-        if(auto item=graphics.Items().GetAt(1).try_as<ComboBoxItem>())item.IsEnabled(available);
+        // Keep the GPU and graphics choices reachable so users can enable
+        // the native performance path when the MF probe is negative.
+        if(auto item=encoder.Items().GetAt(1).try_as<ComboBoxItem>())item.IsEnabled(hardwareChecked);
+        if(auto item=graphics.Items().GetAt(1).try_as<ComboBoxItem>())item.IsEnabled(hardwareChecked);
         encoderHint.Text(available?L"":tr(gpuIssue()));
         encoderHint.Visibility(available?Visibility::Collapsed:Visibility::Visible);
     }
@@ -299,7 +304,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
             if(auto control=child.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
             if(auto row=child.try_as<StackPanel>())for(auto const& item:row.Children())if(auto control=item.try_as<Control>())control.IsEnabled(!quitting&&!busy&&!selector&&!selectPending&&!pickingWindow);
         }
-        beta.IsEnabled(!quitting&&!busy&&encoder.SelectedIndex()==1&&gpuAvailable());
+        beta.IsEnabled(!quitting&&!busy&&encoder.SelectedIndex()==1&&hardwareChecked);
         systemAudio.IsEnabled(!quitting&&!busy&&!replaySession.busy());microphone.IsEnabled(systemAudio.IsEnabled());
         replayStorage.IsEnabled(!quitting&&!busy&&!replaySession.busy());memoryLimit.IsEnabled(replayStorage.IsEnabled()&&replayStorage.SelectedIndex()==1);memoryHint.Visibility(replayStorage.SelectedIndex()==1?Visibility::Visible:Visibility::Collapsed);
         const bool encodingAvailable=encoder.SelectedIndex()!=1||gpuAvailable();

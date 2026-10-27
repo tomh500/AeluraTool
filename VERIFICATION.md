@@ -1,5 +1,12 @@
 # 验证记录
 
+## GPU 编码与云端录屏检查（2026-10-27）
+
+- GPU 性能路径允许在 Media Foundation 硬件枚举为否时尝试原生编码器初始化；实际不可用仍由录制会话报告。采集测试仅在创建 D3D 采集管线返回 `DXGI_ERROR_UNSUPPORTED` 时报告跳过，其他错误仍失败。
+- Debug / Release 均成功构建并同步部署，两种配置完整 `scripts/test.ps1` 通过，覆盖迁移、搜索、快捷键失败回滚和截图通信。日志：`artifacts/pr3-fix-build-*.log`、`artifacts/pr3-fix-tests-*.log`。
+- 最终 Release 包的桌面快捷方式使用包身份，图标与工作目录指向部署目录；部署和构建 EXE 的 SHA-256 均为 `47F55D8A4D4B2D238526F00722EB1B1F52DF924C777AF6D15070D11CF0A47706`。
+- 未在缺少 Media Foundation 硬件编码器但支持原生 NVENC/AMF 的机器上实测，也未进行主题、搜索和分类导航的可见界面检查；云端验证等待重新运行。保留原有 `BUILD_AND_DISTRIBUTE.md` 修改。
+
 ## 双协议网络工具（2026-10-25，1.6.5.0）
 
 - 从 `codex/account-login` 切到 `codex/network-utilities`，确认旧分支全部提交已由新分支保留后删除旧分支；保留 `main`，未推送。工作区原有 `BUILD_AND_DISTRIBUTE.md` 空行修改未覆盖、未纳入提交。

@@ -90,7 +90,12 @@ void colorTests(fs::path const& root) {
         const bool gpuCapture=backend!=0;
         RECT region{0,0,LONG(w-1),LONG(h-1)};
         media::Frames gdi(o,region);std::unique_ptr<gpu::Pipeline> pipeline;
-        if(gpuCapture){auto captureOptions=o;captureOptions.encoder=Encoder::GPU;pipeline=std::make_unique<gpu::Pipeline>(captureOptions,region,window.value,false,backend==2?gpu::ColorConversion::Software:gpu::ColorConversion::Automatic);std::cout<<"CHECK: software color conversion="<<pipeline->usesSoftwareColorConversion()<<"\n";}
+        if(gpuCapture){
+            auto captureOptions=o;captureOptions.encoder=Encoder::GPU;
+            try{pipeline=std::make_unique<gpu::Pipeline>(captureOptions,region,window.value,false,backend==2?gpu::ColorConversion::Software:gpu::ColorConversion::Automatic);}
+            catch(winrt::hresult_error const& e){if(e.code()!=DXGI_ERROR_UNSUPPORTED)throw;std::cout<<"SKIP: D3D capture unavailable (DXGI_ERROR_UNSUPPORTED), backend "<<backend<<"\n";continue;}
+            std::cout<<"CHECK: software color conversion="<<pipeline->usesSoftwareColorConversion()<<"\n";
+        }
         auto name=std::to_wstring(w)+L"-"+std::to_wstring(backend);
         auto path=root/(L"capture-"+name+L".mp4");media::Microphone audio(false);
         media::Writer writer(o,w,h,audio,path);
