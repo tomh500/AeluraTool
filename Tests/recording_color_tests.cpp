@@ -85,6 +85,11 @@ void colorTests(fs::path const& root) {
     Options o;o.systemAudio=false;o.encoder=Encoder::CPU;o.cursor=false;o.bitrate=4000000;
     for(auto size:{std::array<unsigned,2>{642,478},{2358,1238}})for(unsigned backend=0;backend<3;++backend) {
         auto [w,h]=size;
+        MONITORINFO monitor{sizeof(monitor)};
+        if(!GetMonitorInfoW(MonitorFromPoint(POINT{0,0},MONITOR_DEFAULTTONULL),&monitor))winrt::throw_last_error();
+        if(monitor.rcMonitor.left>0||monitor.rcMonitor.top>0||monitor.rcMonitor.right<LONG(w-1)||monitor.rcMonitor.bottom<LONG(h-1)){
+            std::cout<<"SKIP: capture sample exceeds the display, "<<w<<"x"<<h<<" backend "<<backend<<"\n";continue;
+        }
         SetWindowPos(window.value,HWND_TOPMOST,0,0,int(w-1),int(h-1),SWP_SHOWWINDOW);InvalidateRect(window.value,nullptr,FALSE);UpdateWindow(window.value);
         winrt::check_hresult(DwmFlush());
         const bool gpuCapture=backend!=0;
