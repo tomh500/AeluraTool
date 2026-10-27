@@ -456,3 +456,9 @@
 - 签名安装包为 `artifacts/distribution/AeluraTool-1.6.4.4-x64-20261024-171610.zip`，SHA256 `D7B1000CEA27F29EDFCDACC0DEB89AFB06C1BE2050BC35C6ECAC04814E09A1A0`。实际解压后的 PS1 / BAT / CMD 预检及依赖/证书缺失、错误指纹、未签名包拒绝检查通过；没有修改系统证书信任。
 - 限制：本轮无 GPU 条件使用隔离枚举夹具验证；尚未在用户 VMware 内安装 1.6.4.4 验证灰显选项和提示。已有虚拟机 1.6.4.3 的 CPU 重放启动与颜色正确由用户确认。桌面自动输入仍受 CursorPlacementBlocked 限制，未重新人工验证主题、语言即时切换、分类导航和搜索界面；枚举通过不保证所有分辨率、码率和驱动状态都能成功初始化编码器。保留已有 BUILD_AND_DISTRIBUTE.md 改动。
 
+# 2026-10-27 即时重放睡眠恢复
+
+- Debug、Release 构建成功并分别部署；两种配置完整 `scripts/test.ps1` 通过，包括迁移核心、搜索、快捷键失败回滚、录屏及截图通信。日志：`artifacts/sleep-build-debug-final.log`、`sleep-build-release.log`、`sleep-tests-debug.log`、`sleep-tests-release.log`。
+- 最终注册 Release 包，桌面快捷方式通过 AppsFolder 包身份启动，工作目录及图标指向 Release 部署目录。部署和构建 EXE 的 SHA-256 均为 `0821D2FC11E6EC94187836FC1DDD9DA5DC79F7E846D6D0B0EFB19A90DDDD1449`。
+- 未实际触发睡眠或休眠、验证唤醒重试，亦未进行主题、搜索和分类导航的可见界面操作。内存重放会在会话重建时丢失未保存缓存；磁盘缓存留在恢复目录。保留用户的 `BUILD_AND_DISTRIBUTE.md` 修改。
+

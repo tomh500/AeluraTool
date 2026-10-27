@@ -38,6 +38,27 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
     TextBlock floatState;Button floatPause,floatStop,floatSave,floatOpen;
     MediaPlayerElement player{nullptr};Windows::Media::Playback::MediaPlayer mediaPlayer{nullptr};
     Microsoft::UI::Dispatching::DispatcherQueueTimer timer{nullptr};
+    ULONGLONG powerTick{},powerAwake{};bool powerClockReady{},resumeReplay{};unsigned resumeAttempts{};
+    std::chrono::steady_clock::time_point resumeAt{};
+    void checkResume(){
+        ULONGLONG awake{};const auto tick=GetTickCount64();
+        if(!QueryUnbiasedInterruptTime(&awake)){powerClockReady=false;return;}
+        if(powerClockReady&&tick>=powerTick&&awake>=powerAwake){
+            const auto elapsed=tick-powerTick, active=(awake-powerAwake)/10000;
+            if(elapsed>active+2000&&options.replayEnabled&&!quitting){
+                resumeReplay=true;resumeAttempts=0;resumeAt=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+                replaySession.stop();
+            }
+        }
+        powerTick=tick;powerAwake=awake;powerClockReady=true;
+        if(!options.replayEnabled||quitting){resumeReplay=false;return;}
+        if(resumeReplay&&!replaySession.busy()&&std::chrono::steady_clock::now()>=resumeAt){
+            if(resumeAttempts>=6){resumeReplay=false;return;}
+            ++resumeAttempts;resumeAt=std::chrono::steady_clock::now()+std::chrono::seconds(5);startReplay();
+        }
+        const auto current=replaySession.snapshot();
+        if(resumeReplay&&resumeAttempts&&current.state==State::Recording&&current.frames>0)resumeReplay=false;
+    }
     Impl(HWND h,std::filesystem::path const& path,std::function<void()> callback,std::function<HWND()> host):main(h),config(path),restore(std::move(callback)),captureHost(std::move(host)),notification(h) {
         options=load(config);
         if(options.directory.empty()) {PWSTR p{};check_hresult(SHGetKnownFolderPath(FOLDERID_Videos,0,nullptr,&p));options.directory=std::filesystem::path(p)/L"AeluraTool";CoTaskMemFree(p);}
@@ -251,6 +272,7 @@ struct Panel::Impl : std::enable_shared_from_this<Impl> {
         }catch(...){if(!closing)issueKey="record.preview_failed";}
     }
     void tick(){
+        checkResume();
         // A modal picker owns focus and its automation tree until it closes.
         // Repeatedly disabling/relabeling its underlying page can reenter XAML
         // focus/automation processing. Recording workers continue independently.
