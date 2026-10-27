@@ -1,6 +1,7 @@
 name: Build and nightly release
 
 on:
+  pull_request:
   push:
     branches: [main]
     paths-ignore:
@@ -89,7 +90,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
 
   release:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
