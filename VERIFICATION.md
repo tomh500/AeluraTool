@@ -1,5 +1,11 @@
 # 验证记录
 
+## PR 继承分支复验（2026-10-27）
+
+- 在即时重放修复分支合入网络工具分支的 GPU 编码及云端采集测试修复；Debug / Release 构建和完整测试通过，日志为 `artifacts/pr4-final-build-*.log`、`pr4-final-tests-*.log`。PR 工作流的签名打包和发布仅在 main 推送时运行。
+- Debug、Release 分别同步部署，最终 Release 桌面快捷方式使用包身份、部署目录和图标；部署与构建 EXE SHA-256 均为 `5BEC662D86E24E06C43C27F23F259D4F7D6C2370D7B328CB719B501E62543D6B`。
+- 未实际触发睡眠或休眠，也未进行主题、搜索和分类导航的可见界面检查；云端 CI 和重新审查待完成。保留 `BUILD_AND_DISTRIBUTE.md` 用户修改。
+
 ## GPU 编码与云端录屏检查（2026-10-27）
 
 - GPU 性能路径允许在 Media Foundation 硬件枚举为否时尝试原生编码器初始化；实际不可用仍由录制会话报告。采集测试仅在创建 D3D 采集管线返回 `DXGI_ERROR_UNSUPPORTED` 时报告跳过，其他错误仍失败。
