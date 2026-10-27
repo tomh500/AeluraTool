@@ -150,7 +150,34 @@ public static class InstallSmokeActivation {
         try { $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bitmap.Size); $bitmap.Save((Join-Path $reports 'installed-app.png')) }
         finally { $graphics.Dispose(); $bitmap.Dispose() }
     } catch { $report.screenshotLimitation = $_.Exception.Message }
-    if (!$appProcess.CloseMainWindow() -or !$appProcess.WaitForExit(20000)) { throw 'The idle installed application did not close normally.' }
+    if (!$appProcess.CloseMainWindow()) { throw 'Could not request closing the installed application.' }
+    # A fresh profile asks whether to exit or minimize to the tray. Choose the
+    # real Exit button through UI Automation, scoped to this package's window.
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $exitNames = @('en-US', 'zh-CN' | ForEach-Object {
+        (Get-Content -LiteralPath (Join-Path $folder "Strings/$_.json") -Raw -Encoding UTF8 | ConvertFrom-Json).'close.exit'
+    })
+    $exitDeadline = (Get-Date).AddSeconds(15)
+    $exitInvoked = $false
+    do {
+        $appProcess.Refresh()
+        if ($appProcess.HasExited) { break }
+        $window = [Windows.Automation.AutomationElement]::FromHandle($appProcess.MainWindowHandle)
+        $condition = New-Object Windows.Automation.AndCondition(
+            (New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ProcessIdProperty, $appProcess.Id)),
+            (New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button)))
+        foreach ($button in $window.FindAll([Windows.Automation.TreeScope]::Descendants, $condition)) {
+            if ($button.Current.Name -in $exitNames -and $button.Current.IsEnabled) {
+                $invoke = [Windows.Automation.InvokePattern]$button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
+                $invoke.Invoke()
+                $exitInvoked = $true
+                break
+            }
+        }
+        if (!$exitInvoked) { Start-Sleep -Milliseconds 250 }
+    } while (!$exitInvoked -and (Get-Date) -lt $exitDeadline)
+    if (!$exitInvoked -or !$appProcess.WaitForExit(20000)) { throw 'The first-run Exit confirmation did not close the idle application.' }
+    $report.shutdown = 'Selected Exit in the first-run close confirmation and observed normal process termination.'
     $report.passed = $true
 } catch {
     $failure = $_
