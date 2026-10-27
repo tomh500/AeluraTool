@@ -19,6 +19,8 @@ $report = [ordered]@{
     os = [Environment]::OSVersion.VersionString
     initialDependencies = @()
     installedDependencies = @()
+    sourceRun = $env:INSTALL_SOURCE_RUN
+    sourceRevision = $env:INSTALL_SOURCE_REVISION
     error = $null
 }
 $scratch = Join-Path $env:RUNNER_TEMP ('Aelura install smoke ' + [guid]::NewGuid().ToString('N'))
@@ -29,37 +31,7 @@ $packageOwned = $false
 $trustOwned = $false
 $failure = $null
 $started = Get-Date
-function Invoke-UserInstaller([string]$Directory) {
-    $info = New-Object Diagnostics.ProcessStartInfo
-    $info.FileName = $env:ComSpec
-    $info.Arguments = '/d /c call Install.bat'
-    $info.WorkingDirectory = $Directory
-    $info.UseShellExecute = $false
-    $info.CreateNoWindow = $true
-    $info.RedirectStandardInput = $true
-    $info.RedirectStandardOutput = $true
-    $info.RedirectStandardError = $true
-    $process = New-Object Diagnostics.Process
-    $process.StartInfo = $info
-    try {
-        if (!$process.Start()) { throw 'Could not start Install.bat.' }
-        $output = $process.StandardOutput.ReadToEndAsync()
-        $errors = $process.StandardError.ReadToEndAsync()
-        # Exercise the real user prompt and elevation helper. No CheckOnly,
-        # direct Add-AppxPackage call, or pre-imported certificate is used.
-        $process.StandardInput.WriteLine('yes')
-        $process.StandardInput.WriteLine('')
-        $process.StandardInput.Close()
-        if (!$process.WaitForExit(180000)) {
-            & "$env:WINDIR\System32\taskkill.exe" /PID $process.Id /T /F | Out-Null
-            throw 'Install.bat exceeded the three minute limit.'
-        }
-        $text = $output.GetAwaiter().GetResult() + $errors.GetAwaiter().GetResult()
-        $text | Set-Content -LiteralPath (Join-Path $reports 'installer.log') -Encoding UTF8
-        $report.installerExitCode = $process.ExitCode
-        if ($process.ExitCode -ne 0) { throw "Install.bat returned $($process.ExitCode); see installer.log." }
-    } finally { $process.Dispose() }
-}
+. (Join-Path $PSScriptRoot 'Installer.BatRunner.ps1')
 try {
     $archives = @(Get-ChildItem -LiteralPath $ArtifactDirectory -Filter '*.zip' -File)
     if ($archives.Count -ne 1) { throw 'Expected one signed release ZIP.' }
@@ -94,7 +66,10 @@ try {
     $plan = Get-InstallerDependencyPlan $packages[0].FullName @($dependencies.FullName) @(Get-AppxPackage)
     $report.initialDependencies = @($plan.Requirements)
     if (!$plan.Paths.Count) { throw 'All runtimes are already installed; missing-dependency installation would not be tested.' }
-    Invoke-UserInstaller $folder
+    # Exercise the user prompt/elevation helper without CheckOnly, direct
+    # Add-AppxPackage, or a pre-imported certificate.
+    $report.installerExitCode = Invoke-InstallerBat $folder (Join-Path $reports 'installer.log')
+    if ($report.installerExitCode -ne 0) { throw "Install.bat returned $($report.installerExitCode); see installer.log." }
     $installed = @(Get-AppxPackage -Name $packageName | Where-Object { [string]$_.Status -eq 'Ok' -and !$_.IsDevelopmentMode })
     if ($installed.Count -ne 1 -or $installed[0].Publisher -ne $manifest.Package.Identity.Publisher -or
         [version]$installed[0].Version -ne [version]$manifest.Package.Identity.Version) { throw 'Installed package identity/version/status does not match the release.' }

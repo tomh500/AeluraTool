@@ -13,12 +13,17 @@ on:
         description: Build a signed archive and test Install.bat on a separate Windows runner
         type: boolean
         default: true
+      install_run_id:
+        description: Optional existing run with a signed nightly artifact; only recheck installation without rebuilding or publishing
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.install_run_id == ''
     runs-on: windows-2025-vs2026
     timeout-minutes: 180
     env:
@@ -103,18 +108,48 @@ jobs:
       signed: ${{ steps.package.outputs.ready }}
 
   install:
-    if: needs.build.outputs.signed == 'true'
+    if: always() && !cancelled() && ((needs.build.result == 'success' && needs.build.outputs.signed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.install_run_id != ''))
     needs: build
     runs-on: windows-2025
     timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
+      - name: Select the signed archive
+        id: input
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.install_run_id }}
+        run: |
+          $sourceRun = if ($env:SOURCE_RUN) { $env:SOURCE_RUN } else { $env:GITHUB_RUN_ID }
+          if ($sourceRun -notmatch '^[0-9]+$') { throw 'Invalid source run ID.' }
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          $root = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions"
+          $run = Invoke-RestMethod "$root/runs/$sourceRun" -Headers $headers
+          if ($run.event -notin @('push', 'workflow_dispatch') -or $run.head_repository.full_name -ne $env:GITHUB_REPOSITORY -or $run.path -notmatch '^\.github/workflows/nightly\.yml(@.*)?$') {
+            throw 'Installation requires an archive from a trusted signing workflow in this repository.'
+          }
+          $artifacts = Invoke-RestMethod "$root/runs/$sourceRun/artifacts?per_page=100" -Headers $headers
+          $artifact = $artifacts.artifacts | Where-Object { !$_.expired -and $_.name -match "^nightly-$sourceRun-[0-9]+$" } | Sort-Object id -Descending | Select-Object -First 1
+          if (!$artifact) { throw 'No signed nightly archive exists in the source run.' }
+          "run=$sourceRun" >> $env:GITHUB_OUTPUT
+          "revision=$($run.head_sha)" >> $env:GITHUB_OUTPUT
+          "name=$($artifact.name)" >> $env:GITHUB_OUTPUT
+          Write-Output "Testing $($artifact.name), source revision $($run.head_sha)"
       - uses: actions/download-artifact@v4
         with:
-          name: nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ steps.input.outputs.name }}
+          run-id: ${{ steps.input.outputs.run }}
+          github-token: ${{ github.token }}
           path: install-input
       - name: Install through the user BAT and activate the packaged app
         shell: powershell
+        env:
+          INSTALL_SOURCE_RUN: ${{ steps.input.outputs.run }}
+          INSTALL_SOURCE_REVISION: ${{ steps.input.outputs.revision }}
         run: ./Tests/install_smoke.ps1 -ArtifactDirectory ./install-input -ReportDirectory ./artifacts/install-smoke
       - name: Upload installation evidence
         if: always()
