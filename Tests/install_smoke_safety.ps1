@@ -2,8 +2,10 @@ $ErrorActionPreference = 'Stop'
 $script = Join-Path $PSScriptRoot 'install_smoke.ps1'
 $tokens = $null
 $errors = $null
-[Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors) | Out-Null
+$syntax = [Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
+$native = $syntax.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Add-Type' -and $node.CommandElements.Count -gt 2 -and $node.CommandElements[1].Extent.Text -eq '-TypeDefinition' }, $true)
+Add-Type -TypeDefinition $native.CommandElements[2].Value
 . (Join-Path $PSScriptRoot 'Installer.BatRunner.ps1')
 $originalActions = $env:GITHUB_ACTIONS
 try {
@@ -42,3 +44,4 @@ exit 0
 }
 Write-Output 'PASS: installation harness parses and rejects non-CI execution before accessing artifacts or changing the system.'
 Write-Output 'PASS: shared Windows PowerShell BAT driver sends exact consent and preserves failure exit codes.'
+Write-Output 'PASS: native activation/window interop compiles without launching the application.'

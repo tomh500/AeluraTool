@@ -104,6 +104,37 @@ public static class InstallSmokeActivation {
         finally { Marshal.ReleaseComObject(manager); }
     }
 }
+public static class InstallSmokeWindow {
+    delegate bool EnumCallback(IntPtr window, IntPtr data);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumCallback callback, IntPtr data);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr GetProp(IntPtr window, string name);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr window);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr window, int command);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
+    public static IntPtr Find(uint process) {
+        IntPtr found=IntPtr.Zero;
+        EnumWindows(delegate(IntPtr window, IntPtr data) {
+            uint owner; GetWindowThreadProcessId(window, out owner);
+            if(owner==process && GetProp(window, "AeluraTool.MainWindow")!=IntPtr.Zero && IsWindowVisible(window) && IsWindowEnabled(window)) { found=window; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+    public static void Show(IntPtr window) {
+        ShowWindow(window, 9);
+        SetWindowPos(window, new IntPtr(-1), 0, 0, 0, 0, 0x0041);
+        SetForegroundWindow(window);
+    }
+    public static bool Responds(IntPtr window) {
+        IntPtr result; return SendMessageTimeout(window, 0, IntPtr.Zero, IntPtr.Zero, 2, 5000, out result)!=IntPtr.Zero;
+    }
+    public static bool Close(IntPtr window) { return PostMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero); }
+}
 '@
     $appProcess = Get-Process -Id ([InstallSmokeActivation]::Start($aumid))
     $deadline = (Get-Date).AddSeconds(30)
@@ -111,11 +142,13 @@ public static class InstallSmokeActivation {
         Start-Sleep -Milliseconds 250
         $appProcess.Refresh()
         if ($appProcess.HasExited) { throw 'The installed application exited during startup.' }
-    } while (!$appProcess.MainWindowHandle -and (Get-Date) -lt $deadline)
-    if (!$appProcess.MainWindowHandle -or $appProcess.MainModule.FileName -ne (Join-Path $installed.InstallLocation 'AeluraTool.exe')) { throw 'No main window from the installed package appeared.' }
+        $mainWindow = [InstallSmokeWindow]::Find($appProcess.Id)
+    } while ($mainWindow -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline)
+    if ($mainWindow -eq [IntPtr]::Zero -or $appProcess.MainModule.FileName -ne (Join-Path $installed.InstallLocation 'AeluraTool.exe')) { throw 'No tagged visible enabled main window from the installed package appeared.' }
+    [InstallSmokeWindow]::Show($mainWindow)
     Start-Sleep -Seconds 5
     $appProcess.Refresh()
-    if ($appProcess.HasExited -or !$appProcess.Responding) { throw 'The installed application did not remain responsive.' }
+    if ($appProcess.HasExited -or ![InstallSmokeWindow]::Responds($mainWindow)) { throw 'The installed main window did not remain responsive.' }
     $report.activation = 'Package identity activation produced a responsive main window for at least five seconds.'
     try {
         Add-Type -AssemblyName System.Drawing, System.Windows.Forms
@@ -125,7 +158,7 @@ public static class InstallSmokeActivation {
         try { $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bitmap.Size); $bitmap.Save((Join-Path $reports 'installed-app.png')) }
         finally { $graphics.Dispose(); $bitmap.Dispose() }
     } catch { $report.screenshotLimitation = $_.Exception.Message }
-    if (!$appProcess.CloseMainWindow()) { throw 'Could not request closing the installed application.' }
+    if (![InstallSmokeWindow]::Close($mainWindow)) { throw 'Could not request closing the installed main window.' }
     # A fresh profile asks whether to exit or minimize to the tray. Choose the
     # real Exit button through UI Automation, scoped to this package's window.
     Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
@@ -137,7 +170,7 @@ public static class InstallSmokeActivation {
     do {
         $appProcess.Refresh()
         if ($appProcess.HasExited) { break }
-        $window = [Windows.Automation.AutomationElement]::FromHandle($appProcess.MainWindowHandle)
+        $window = [Windows.Automation.AutomationElement]::FromHandle($mainWindow)
         $condition = New-Object Windows.Automation.AndCondition(
             (New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ProcessIdProperty, $appProcess.Id)),
             (New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::Button)))
