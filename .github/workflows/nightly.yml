@@ -8,12 +8,22 @@ on:
       - '**/*.md'
       - 'Docs/**'
   workflow_dispatch:
+    inputs:
+      verify_install:
+        description: Build a signed archive and test Install.bat on a separate Windows runner
+        type: boolean
+        default: true
+      install_run_id:
+        description: Optional existing run with a signed nightly artifact; only recheck installation without rebuilding or publishing
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.install_run_id == ''
     runs-on: windows-2025-vs2026
     timeout-minutes: 180
     env:
@@ -62,20 +72,25 @@ jobs:
           if ($LASTEXITCODE) { throw 'Installer launcher tests failed' }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tests/installer_dependencies.ps1
           if ($LASTEXITCODE) { throw 'Installer dependency tests failed' }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tests/install_smoke_safety.ps1
+          if ($LASTEXITCODE) { throw 'Installation harness safety checks failed' }
           ./scripts/build.ps1 -Configuration Release
           ./scripts/test.ps1 -Configuration Release
           ./scripts/build.ps1 -Configuration Debug
           ./scripts/test.ps1 -Configuration Debug
       - name: Package signed nightly and check installer
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: package
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.verify_install)
         shell: pwsh
         env:
           MSIX_SIGNING_PFX_BASE64: ${{ secrets.MSIX_SIGNING_PFX_BASE64 }}
           MSIX_SIGNING_PFX_PASSWORD: ${{ secrets.MSIX_SIGNING_PFX_PASSWORD }}
           NIGHTLY_NAME: AeluraTool-nightly-${{ steps.version.outputs.stamp }}-${{ github.run_id }}-${{ github.run_attempt }}-x64
-        run: ./scripts/package-nightly.ps1
+        run: |
+          ./scripts/package-nightly.ps1
+          "ready=true" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.package.outputs.ready == 'true'
         with:
           name: nightly-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/nightly/*
@@ -90,10 +105,62 @@ jobs:
     outputs:
       stamp: ${{ steps.version.outputs.stamp }}
       version: ${{ steps.version.outputs.version }}
+      signed: ${{ steps.package.outputs.ready }}
+
+  install:
+    if: always() && !cancelled() && ((needs.build.result == 'success' && needs.build.outputs.signed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.install_run_id != ''))
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the signed archive
+        id: input
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.install_run_id }}
+        run: |
+          $sourceRun = if ($env:SOURCE_RUN) { $env:SOURCE_RUN } else { $env:GITHUB_RUN_ID }
+          if ($sourceRun -notmatch '^[0-9]+$') { throw 'Invalid source run ID.' }
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          $root = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions"
+          $run = Invoke-RestMethod "$root/runs/$sourceRun" -Headers $headers
+          if ($run.event -notin @('push', 'workflow_dispatch') -or $run.head_repository.full_name -ne $env:GITHUB_REPOSITORY -or $run.path -notmatch '^\.github/workflows/nightly\.yml(@.*)?$') {
+            throw 'Installation requires an archive from a trusted signing workflow in this repository.'
+          }
+          $artifacts = Invoke-RestMethod "$root/runs/$sourceRun/artifacts?per_page=100" -Headers $headers
+          $artifact = $artifacts.artifacts | Where-Object { !$_.expired -and $_.name -match "^nightly-$sourceRun-[0-9]+$" } | Sort-Object id -Descending | Select-Object -First 1
+          if (!$artifact) { throw 'No signed nightly archive exists in the source run.' }
+          @("run=$sourceRun", "revision=$($run.head_sha)", "name=$($artifact.name)") |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Output "Testing $($artifact.name), source revision $($run.head_sha)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.input.outputs.name }}
+          run-id: ${{ steps.input.outputs.run }}
+          github-token: ${{ github.token }}
+          path: install-input
+      - name: Install through the user BAT and activate the packaged app
+        shell: powershell
+        env:
+          INSTALL_SOURCE_RUN: ${{ steps.input.outputs.run }}
+          INSTALL_SOURCE_REVISION: ${{ steps.input.outputs.revision }}
+        run: ./Tests/install_smoke.ps1 -ArtifactDirectory ./install-input -ReportDirectory ./artifacts/install-smoke
+      - name: Upload installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/install-smoke/*
+          if-no-files-found: warn
 
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build, install]
     runs-on: ubuntu-latest
     permissions:
       contents: write
